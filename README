@@ -2,7 +2,7 @@
 
 *makechains.m produces PMEs for samples
 *evalBPC.m calculates and displays BPC values for existing PMEs
-*PME_plot.m displays a PME
+*PMEplot.m displays a PME
 *BPC2frac.m converts a BPC value (input by the user) into a combination of f1 and f2 values (see paper text)
 *chain_const_joint.m, chain_const.m, mcmcautocorr_bpdf.m, mcmcmetro_bpdf.m, mcmcsampsiz_bpdf.m, mvncovcheck.m, nearestSPD.m, pchain_gen.m, sp_log_area.m, sp_log_prob_dens.m, and x_eval.m are called by makechains.m and are not intended for independent use.
 *all files have detailed information about parameters and output
