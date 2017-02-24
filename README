@@ -1,1 +1,4 @@
 # BPC
+
+*makechains.m produces PMEs for samples
+*evalBPC.m calculates and displays BPC values for existing PMEs
