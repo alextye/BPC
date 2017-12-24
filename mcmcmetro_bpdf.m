@@ -22,7 +22,12 @@ function [pchain,logLk,accRatio] = mcmcmetro_bpdf(Nchain,pinit,logLkFun,sig2,kno
     logLk  = nan*ones(Nchain,1);
     accHist= nan*ones(Nchain,1);
 
-    pinit = pinit - sp_log_area(knots,pinit,N_pts);
+    EPSarea = 1e-5;
+    larea = sp_log_area(knots,pinit,N_pts);
+    while(abs(larea)>EPSarea)
+        pinit = pinit - larea;
+        larea = sp_log_area(knots,pinit,N_pts);
+    end
     
     prev = pinit;
 %    csvwrite('temp_dump/pinit',pinit);

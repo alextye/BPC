@@ -1,4 +1,4 @@
-function y = makechains(folderpath, x_min, x_max)
+function y = makePME(folderpath, x_min, x_max, varargin)
 
 %function generates representative samples of the posteriors of the set of
 %zircon samples contained within folderpath, as well as the 'joint' samples
@@ -40,6 +40,22 @@ function y = makechains(folderpath, x_min, x_max)
 %Our splining procedure uses a natural logarithmic age scale, so x_min
 %values of 0 are prohibited and values of <1 are not suggested.
 
+%varargin is optionally the number of cores to use for processing
+
+    delete(gcp('nocreate'));
+
+    if size(varargin,2)>0
+        corespec = varargin{1};
+    else
+        corespec = 0;
+    end
+
+    %start parpool
+    if corespec == 0
+        parpool;
+    else
+        parpool(corespec);
+    end
 
     %retrieve the names of zircon sample data files.
     fnames = dir(strcat(folderpath,'*.csv'));
@@ -93,6 +109,7 @@ function y = makechains(folderpath, x_min, x_max)
         end
     end
 
+    h = parfor_progressbar(k,'Inferring PMEs... (can take minutes to hours)');
     %iterate through the zircon sample datafiles in folderpath, generating
     %a Markov chain (posterior sample of possible probability models) for
     %each zircon sample.
@@ -102,7 +119,7 @@ function y = makechains(folderpath, x_min, x_max)
             %test for whether the Markov chain already exists; this allows the
             %script to be terminated and restarted with minimal consequence.
             nametest = dir(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'logLk.csv'));
-            if(size(nametest)==[0 1])
+            if(size(nametest,1)==0)
                 fileID = fopen(strcat(folderpath,'log/',fnames(i).name(1:end-4),'log.txt'),'w');
                 [pchain, logLk] = chain_const(N_coefs,lsampages{i},lxmin,lxmax,p_sig,delta,N_pts,fileID);
                 csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'chain.csv'),pchain);
@@ -117,7 +134,7 @@ function y = makechains(folderpath, x_min, x_max)
 
             [i, j] = find(idxguide==l);
             nametest = dir(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'logLk.csv'));
-            if(size(nametest)==[0 1])
+            if(size(nametest,1)==0)
                 fileID = fopen(strcat(folderpath,'log/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'log.txt'),'w');
                 [jointchain, jointlogLk] = chain_const_joint(N_coefs,lsampages{i},lsampages{j},lxmin,lxmax,p_sig,delta,N_pts,fileID);
                 csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'chain.csv'),jointchain);
@@ -125,5 +142,9 @@ function y = makechains(folderpath, x_min, x_max)
                 fclose('all');
             end
         end
+        h.iterate();
     end
+    close(h);
+    delete(gcp('nocreate'));
+    h = msgbox('makePME complete.');
 end

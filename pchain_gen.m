@@ -56,15 +56,21 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
     %-log(likelihood). The minimized function has an additional constraint,
     %which is that the area underneath the exponentiated b-spline curve 
     %must integrate to 1 because it is a PDF.
-    [y,fval,exitflag,output,lambda,grad,hessian] = fmincon(@log_eval_opt,priors_mu,[],[],[],[],[],[],@log_area_loc);
+    
+    %this block also outputs a log of the optimization to the log file for
+    %the current PME.
+    options = optimoptions(@fmincon,'Display','iter');
+    options.MaxFunctionEvaluations = 10000;
+    [out,y,fval,exitflag,output,lambda,grad,hessian] = evalc('fmincon(@log_eval_opt,priors_mu,[],[],[],[],[],[],@log_area_loc,options)');
+    fprintf(fileID,'%s\n*******\n',out);
 
     opt_area = sp_log_area(knots,y,N_pts);
     fprintf(fileID, '%s\n\n', strcat('opt_area = ',mat2str(opt_area)));
-
+    
     %use the nearest symmetric, positive-definite matrix to the inverse of
     %the Hessian returned by the minimization as the covariance matrix for
     %the model parameters during the subsequent Monte Carlo simulations.
-    opt_cov = nearestSPD(inv(hessian));
+    [out,opt_cov] = evalc('nearestSPD(inv(hessian))');
     fprintf(fileID, '%s\n\n', strcat('MLM = ',mat2str(y)));
     fprintf(fileID, '%s\n\n', strcat('cov matrix = ',mat2str(opt_cov)));
 
@@ -73,7 +79,7 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
     %direction.
     [opt_cov, Dcheck] = mvncovcheck(y,opt_cov,@log_eval_opt);
 
-    opt_cov = nearestSPD(opt_cov);
+    [out,opt_cov] = evalc('nearestSPD(opt_cov)');
     fprintf(fileID, '%s\n\n', strcat('corrected cov matrix = ',mat2str(opt_cov)));
     fprintf(fileID, '%s\n\n', strcat('Dcheck = ',mat2str(Dcheck)));
 
@@ -117,12 +123,11 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
                 solt = max(x1,x2);
             else
                 accRatiofctn = @(f)(((accRatio1 - (1-exp(f(1)*x1+f(2))))^2 + (accRatio2 - (1-exp(f(1)*x2+f(2))))^2)^(1/2));
-                sol = patternsearch(accRatiofctn,[0 0]);
+                [out,sol] = evalc('patternsearch(accRatiofctn,[0 0])');
                 targetAccRatio = @(t)((0.24 - (1-exp(sol(1)*t+sol(2))))^2);
-                solt = patternsearch(targetAccRatio,0);
+                [out,solt] = evalc('patternsearch(targetAccRatio,0)');
             end
             fprintf(fileID, '%s\n\n', strcat('exp(solt) = ',mat2str(exp(solt))));
-
             %find the autocorrelation and resulting 'effective sample size'
             %from initial MCMC run of 2000 steps, then initiate the main part
             %of the MCMC algorithm, which will run until the number of
@@ -141,9 +146,16 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
             fprintf(fileID, '%s\n\n', strcat('test [fedup] = ',mat2str([fedup])));
         end
         [pchain,logLk,effSampN,accVec] = mcmcsampsiz_bpdf(100,@log_eval,exp(solt)*opt_cov,pchain,logLk,effSampN,accRatio,'metro',knots,N_pts,fileID);
+        
+        %set maximum likelihood model as first model of the pchain
+        pchain([2:end+1],:) = pchain;
+        pchain(1,:) = y;
+        logLk([2:end+1]) = logLk;
+        logLk(1) = -fval;
+    
     else
-        pchain = 0;
-        logLk = 0;
+        pchain = y;
+        logLk = -fval;
         accRatio = 0;
     end
     

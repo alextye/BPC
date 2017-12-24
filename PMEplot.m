@@ -1,4 +1,4 @@
-function z = PMEplot(folderpath,name,x_min,x_max,x_res,y_res,fignum,varargin)
+function z = PMEplotlin(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,showdot,logPDFs,varargin)
     
 %OUTPUT
 %z is a dummy variable
@@ -15,19 +15,53 @@ function z = PMEplot(folderpath,name,x_min,x_max,x_res,y_res,fignum,varargin)
 %makechains()).
 
 %x_res, y_res--these are the desired resolution of the plot for the x- and
-%y-coordinates.
+%y-coordinates (higher number = finer resolution, longer runtime).
 
 %fignum--this is the number of the figure to which to output the display
 
-%varargin--a value of zero or 1 may be optionally input to suppress the
-%plotting of the maximum likelihood model line in the plot.  Inputting 1
-%will cause the line not to be plotted and inputting 0 will cause it to be
-%plotted.
+%showMLM--this is a boolean that determines whether to show the maximum
+%likelihood probability model as a colored line in the resulting figure or
+%not.
 
-    if size(varargin,2)>0
-        supline = varargin{1};
+%showdot--boolean that determines whether a dotplot of the measured ages
+%will be shown beneath the PME.
+
+%logPDFs--boolean that determines whether PDFs will be shown on log p scale
+%or with linear p scale.
+
+%varargin(1)--number of cores
+
+%varargin(2)--optional plot title.
+
+%varargin(3)--indicates whether dot plot and maximum likelihood model
+%should be plotted in new figures
+
+    delete(gcp('nocreate'));
+
+    if size(varargin,2)>2
+        showtitle=1;
+        plottitle = varargin{3};
     else
-        supline = 0;
+        showtitle=0;
+    end
+
+    if size(varargin,2)>1
+        newfig=varargin{2};
+    else
+        newfig=0;
+    end
+    
+    if size(varargin,2)>0
+        corespec = varargin{1};
+    else
+        corespec = 0;
+    end
+    
+    %start parpool
+    if corespec == 0
+        parpool;
+    else
+        parpool(corespec);
     end
 
     %log transform x_min and x_max
@@ -44,10 +78,25 @@ function z = PMEplot(folderpath,name,x_min,x_max,x_res,y_res,fignum,varargin)
     x = [x_min+(x_max-x_min)/(2*x_res):(x_max-x_min)/x_res:x_max-(x_max-x_min)/(2*x_res)];
     PDFs = zeros(size(pchain,1),x_res);
     
-    %generate logPDF function values at indicated x-values for all
-    %probability chains
+    %generate logPDF or linear PDF function values at indicated x-values 
+    %for all probability chains
+
+    h = parfor_progressbar(size(PDFs,1),'Evaluating PDFs...');
     parfor i = 1:size(PDFs,1)
-        PDFs(i,:) = fnval(spmak(knots,pchain(i,:)),x);
+        if ~logPDFs
+            PDFs(i,:) = exp(fnval(spmak(knots,pchain(i,:)),x));
+        else
+            PDFs(i,:) = fnval(spmak(knots,pchain(i,:)),x);
+        end
+        h.iterate();
+    end
+    close(h);
+    
+    %renormalize PDF area to match the x scale
+    if ~logPDFs
+        PDFs = PDFs * (x_max-x_min)/(exp(x_max)-exp(x_min));
+    else
+        PDFs = PDFs + log((x_max-x_min)/(exp(x_max)-exp(x_min)));
     end
     
     %initialize histogram grid
@@ -58,38 +107,115 @@ function z = PMEplot(folderpath,name,x_min,x_max,x_res,y_res,fignum,varargin)
     maxP = max(max(PDFs));
     y_edges = [minP:(maxP-minP)/y_res:maxP];
     y = [y_edges(2:end)-(y_edges(2)-y_edges(1))/2];
+    yzero = find(y==min(abs(y)));
     
     %calculate the number of PDFs passing through each grid cell
+    h = parfor_progressbar(length(x),'Calculating...');
     parfor i = 1:length(x)
         histgrid(:,i) = histcounts(PDFs(:,i),y_edges)';
+        h.iterate();
     end
+    close(h);
     %limit histogram bin values so that a few cells with extremely high
-    %values don't affect the color plotting for the whole figure
-    histgridvals = reshape(histgrid,[],1);
-    hist99 = quantile(histgridvals(find(histgridvals~=0&histgridvals~=max(histgridvals))),.99);
-    histgrid(find(histgrid>hist99)) = hist99;
+    %values don't affect the color plotting for the whole figure.  Also
+    %ensure that function values near 0 do not dominate the color scale if
+    %the p scale is linear.
+    if ~logPDFs
+        histgridnonzero = histgrid;
+        histgridnonzero(:,yzero)=[];
+        histgridvals = reshape(histgridnonzero,[],1);
+    else
+        histgridvals = histgrid(:);
+    end
+    hist95 = quantile(histgridvals(find(histgridvals~=0&histgridvals~=max(histgridvals))),.95);
+    histgrid(find(histgrid>hist95)) = hist95;
     
     [X,Y] = meshgrid(x,y);
     
     figure(fignum);
+    clf;
     %alters colormap so that bins that zero PDFs pass through plot as white
     cmap = colormap;
     cmap(1,:) = [1 1 1];
     colormap(cmap);
     
-    %output histogram values with log scales.
+    %output histogram values showing concentration of PDF curves of the
+    %PME.
     surf(exp(X),Y,histgrid,'EdgeColor','none');
     set(gca, 'XScale', 'log');
     ax = gca;
     ax.XLim = [exp(x_min) exp(x_max)];
+    yax = ax.YLim;
     xlabel('Age (Ma)');
-    ylabel('ln p');
-    view(2);
-    %plot the maximum likelihood model PDF
-    if(supline==0)
-        hold on;
-        h=plot3(exp(x),fnval(spmak(knots,pchain(1,:)),x),hist99+1*ones(1,length(x)),'r-','LineWidth',1);        
+    if logPDFs
+        ylabel('ln p');
+    else
+        ylabel('p');
     end
-        
+    view(2);
+    
+    %plot the maximum likelihood model PDF
+    if(showMLM==1)
+        hold on;
+        %max. likelihood model can be output onto a new figure
+        if newfig
+            figure(fignum+1);
+            clf
+            ax = gca;
+            if logPDFs
+                h=plot3(exp(x),fnval(spmak(knots,pchain(1,:)),x)+log((x_max-x_min)/(exp(x_max)-exp(x_min))),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+            else
+                h=plot3(exp(x),exp(fnval(spmak(knots,pchain(1,:)),x))*(x_max-x_min)/(exp(x_max)-exp(x_min)),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+            end
+            set(gca, 'XScale', 'log');
+            ax.YLim = yax;
+            ax.XLim = [exp(x_min) exp(x_max)];
+            view(2)
+            xlabel('Age (Ma)');
+            if logPDFs
+                ylabel('ln p');
+            else
+                ylabel('p');
+            end
+        %or can be plotted onto the same figure as the PME.
+        else
+            if logPDFs
+                h=plot3(exp(x),fnval(spmak(knots,pchain(1,:)),x)+log((x_max-x_min)/(exp(x_max)-exp(x_min))),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+            else
+                h=plot3(exp(x),exp(fnval(spmak(knots,pchain(1,:)),x))*(x_max-x_min)/(exp(x_max)-exp(x_min)),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+            end
+        end
+    end
+    %plot dots corresponding to measured zircon ages
+    if showdot        
+        hold on;
+        ages = csvread(strcat(folderpath,name,'.csv'));
+        %eliminate index column in age data, if it exists.
+        if size(ages,2)==3
+            ages = ages(:,[2 3]);
+        end
+        %make marker size contingent on number of datapoints being shown
+        if size(ages,1)>300
+            msize = 5;
+        else
+            msize = 10;
+        end
+        if newfig
+            figure(fignum+2);
+            clf
+            plot(ages(:,1),rand(1,size(ages,1)),'k.','MarkerSize',msize);
+            set(gca, 'XScale', 'log');
+            axis([exp(x_min) exp(x_max) 0 1]);
+            xlabel('Age (Ma)');
+        else
+            plot(ages(:,1),minP-((maxP-minP)/20)*rand(1,size(ages,1)),'k.','MarkerSize',msize);
+        end
+    end
+    %display title
+    if showtitle
+        figure(fignum);
+        title(plottitle);
+    end
     z=0;
+    delete(gcp('nocreate'));
 end

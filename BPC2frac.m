@@ -42,6 +42,8 @@ function y = BPC2frac(BPCm, BPCs, N1, N2, varargin)
         SUPPLOT = varargin{1,1};
     end
     
+    figure(2);
+    
     if f1SPEC
         x = [0.01:0.001:0.99];
         z = zeros(size(x));
@@ -55,7 +57,10 @@ function y = BPC2frac(BPCm, BPCs, N1, N2, varargin)
             inputdens(i) = normpdf(z(i),BPCm,BPCs);
         end
         %plot the probability density of tested f2 values
-        if(~SUPPLOT) plot(x,inputdens); end
+        if(~SUPPLOT) 
+            plot(x,inputdens);
+            xlabel('f_2');
+        end
         %find the center and standard deviation of the (assumed) normal
         %distribution of f2 by search
         mi = find(inputdens==max(max(inputdens)));
@@ -88,9 +93,15 @@ function y = BPC2frac(BPCm, BPCs, N1, N2, varargin)
             %plot the probability density of observing each idealized BPC
             %value given the BPCm and BPCs values input as function
             %arguments
-            image(inputdens/max(max(inputdens)).*64);
-            set(gca,'XTickLabel',{'0.1','0.2','0.3','0.4','0.5','0.6','0.7','0.8','0.9'});
-            set(gca,'YTickLabel',{'0.1','0.2','0.3','0.4','0.5','0.6','0.7','0.8','0.9'});
+            caxis([0 1]);
+            h=surf(x,ymap,inputdens/max(max(inputdens)));
+            set(h,'LineStyle','none')
+%            set(gca,'XTickLabel',{'0.1','0.2','0.3','0.4','0.5','0.6','0.7','0.8','0.9'});
+%            set(gca,'YTickLabel',{'0.1','0.2','0.3','0.4','0.5','0.6','0.7','0.8','0.9'});
+            xlabel('f_1');
+            ylabel('f_2');
+            colorbar;
+            view(2);
         end
         y = [0 0];
     end
