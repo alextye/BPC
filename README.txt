@@ -1,1 +1,3 @@
-See file 'Introduction_README.pdf'.  All the .m and .fig files here are necessary to complete the analyses.
+Download everything by clicking 'Clone or Download' > 'Download ZIP'.
+
+See file 'Introduction_README.pdf'.
