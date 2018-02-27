@@ -198,5 +198,5 @@ function y = BPCunc(folderpath, x_min, x_max, varargin)
     end
     close(h);
     delete(gcp('nocreate'));
-    h = msgbox('BPCunc complete.');
+%    h = msgbox('BPCunc complete.');
 end

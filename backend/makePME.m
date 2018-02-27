@@ -150,5 +150,5 @@ function y = makePME(folderpath, x_min, x_max, varargin)
     end
     close(h);
     delete(gcp('nocreate'));
-    h = msgbox('makePME complete.');
+%    h = msgbox('makePME complete.');
 end
