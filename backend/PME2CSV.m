@@ -67,7 +67,7 @@ function z = PME2CSV(folderpath,name,x_min,x_max,xvals,logPDFs,savepath,savename
     %read pchain
     pchain = csvread(strcat(folderpath,'chains/',name,'chain.csv'),0);
     
-    if thin>0
+    if thin>0 & thin<size(pchain,1)
         idx = randperm(size(pchain,1),thin);
         pchain = pchain(idx,:);
     end
