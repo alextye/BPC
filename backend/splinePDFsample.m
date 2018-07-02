@@ -6,6 +6,9 @@ function y = splinePDFsample(knots,coefs,n,varargin)
     
     %n is the number of desired samples from the PDF.
     
+    %varargin{1} is optionally the number of sets of samples to obtain (n
+    %is the number of ages, N is the number of sets of ages or age samples)
+    
     %OUTPUT
     %function draws samples randomly from the range of the spline function,
     %and for each one generates a random number from [0,max(PDFvalue)]. If

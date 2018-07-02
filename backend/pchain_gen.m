@@ -1,4 +1,4 @@
-function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, priors_mu, priors_sigma, N_pts, MCMC_FLAG,varargin)
+function [y,fval,hessian,pchain,logLk,accRatio,areascale] = pchain_gen(obs_data, knots, priors_mu, priors_sigma, N_pts, MCMC_FLAG,varargin)
 %function solves for the maximum likelihood b-spline probability model to
 %describe a set of observed zircon ages. The function then optimally
 %executes a Metropolis-Hastings Markov Chain Monte Carlo (MCMC) search to
@@ -32,8 +32,16 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
 %   model whose coefficients are listed in row P of pchain.
 %accRatio is the acceptance ratio of candidate models into the Markov
 %   chain, as determined by the Metropolis-Hastings method.
-%varargin can be fileID, the handle of an open log file.
-    
+%varargin{1} can be fileID, the handle of an open log file.
+%varargin{2} is the flag for quick mode, if 1, the script will run in quick
+%mode.
+
+    if size(varargin,2)>1
+        QUICKMFLAG = varargin{2};
+    else
+        QUICKMFLAG = 0;
+    end
+
     if min(size(varargin))>0
         fileID = varargin{1};
     else
@@ -50,7 +58,8 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
     %models (PDFs) and the Gaussians that correspond to the measured age
     %and analytical uncertainty of each grain
     x_evalu = x_eval(obs_data, 10);
-
+    [marg_basis, areax, area_basis] = sp_marg_basis(knots,length(priors_mu),x_evalu,N_pts);
+    
     %execute a constrained minimization to find the maximum likelihood PDF
     %for the given zircon sample. The minimized function is
     %-log(likelihood). The minimized function has an additional constraint,
@@ -64,29 +73,43 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
     [out,y,fval,exitflag,output,lambda,grad,hessian] = evalc('fmincon(@log_eval_opt,priors_mu,[],[],[],[],[],[],@log_area_loc,options)');
     fprintf(fileID,'%s\n*******\n',out);
 
-    opt_area = sp_log_area(knots,y,N_pts);
+    opt_area = sp_log_area(y,areax,area_basis);
     fprintf(fileID, '%s\n\n', strcat('opt_area = ',mat2str(opt_area)));
-    
-    %use the nearest symmetric, positive-definite matrix to the inverse of
-    %the Hessian returned by the minimization as the covariance matrix for
-    %the model parameters during the subsequent Monte Carlo simulations.
-    [out,opt_cov] = evalc('nearestSPD(inv(hessian))');
-    fprintf(fileID, '%s\n\n', strcat('MLM = ',mat2str(y)));
-    fprintf(fileID, '%s\n\n', strcat('cov matrix = ',mat2str(opt_cov)));
 
-    %check and modify the covariance matrix so that it really reflects the
-    %distances required to decrease the maximum likelihood by half in each
-    %direction.
-    [opt_cov, Dcheck] = mvncovcheck(y,opt_cov,@log_eval_opt);
+    if(MCMC_FLAG==1|QUICKMFLAG==1)
+        
+        %use the nearest symmetric, positive-definite matrix to the inverse of
+        %the Hessian returned by the minimization as the covariance matrix for
+        %the model parameters during the subsequent Monte Carlo simulations.
+        [out,opt_cov] = evalc('nearestSPD(inv(hessian))');
+        fprintf(fileID, '%s\n\n', strcat('MLM = ',mat2str(y)));
+        fprintf(fileID, '%s\n\n', strcat('cov matrix = ',mat2str(opt_cov)));
 
-    [out,opt_cov] = evalc('nearestSPD(opt_cov)');
-    fprintf(fileID, '%s\n\n', strcat('corrected cov matrix = ',mat2str(opt_cov)));
-    fprintf(fileID, '%s\n\n', strcat('Dcheck = ',mat2str(Dcheck)));
+        %check and modify the covariance matrix so that it really reflects the
+        %distances required to decrease the maximum likelihood by half in each
+        %direction.
+        [opt_cov, Dcheck] = mvncovcheck(y,opt_cov,@log_eval_opt);
 
-    if(MCMC_FLAG==1)
+        [out,opt_cov] = evalc('nearestSPD(opt_cov)');
+        fprintf(fileID, '%s\n\n', strcat('corrected cov matrix = ',mat2str(opt_cov)));
+        fprintf(fileID, '%s\n\n', strcat('Dcheck = ',mat2str(Dcheck)));
+        
         %only run if MCMC is desired, otherwise return only the maximum
         %likelihood model
-        
+    end
+    
+    if(QUICKMFLAG==1)
+        pchain = mvnrnd(y,opt_cov,1000);
+        for i = 1:1000
+            logLk(i) = log_eval(pchain(i,:));
+        end
+        %set maximum likelihood model as first model of the pchain
+        pchain([2:end+1],:) = pchain;
+        pchain(1,:) = y;
+        logLk([2:end+1]) = -logLk;
+        logLk(1) = -fval;
+        accRatio = 0;    
+    elseif(MCMC_FLAG==1)
         nc_flag = 1;
         fedup = 1;
         while(nc_flag==1|fedup==1)
@@ -104,8 +127,8 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
             while(~(accRatio1 > 0.1 & accRatio2 > 0.1) | max(accRatio1,accRatio2)<0.24)
                 testt1 = testt1/(10^(1/4));
                 testt2 = testt2/(10^(1/4));
-                [pchain1, logLk1, accRatio1] = mcmcmetro_bpdf(2000, y, @log_eval, testt1*opt_cov, knots, N_pts);
-                [pchain2, logLk2, accRatio2] = mcmcmetro_bpdf(2000, y, @log_eval, testt2*opt_cov, knots, N_pts);
+                [pchain1, logLk1, accRatio1] = mcmcmetro_bpdf(2000, y, @log_eval, testt1*opt_cov, areax, area_basis);
+                [pchain2, logLk2, accRatio2] = mcmcmetro_bpdf(2000, y, @log_eval, testt2*opt_cov, areax, area_basis);
                 fprintf(fileID, '%s\n\n', strcat('testt1 = ',mat2str(testt1)));
                 fprintf(fileID, '%s\n\n', strcat('testt2 = ',mat2str(testt2)));
                 fprintf(fileID, '%s\n\n', strcat('accRatio1 = ',mat2str(accRatio1)));
@@ -133,7 +156,7 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
             %of the MCMC algorithm, which will run until the number of
             %'effective samples' is judged to be 30 in the direction of each
             %vector of the basis of the model covariance matrix.
-            [pchain, logLk, accRatio] = mcmcmetro_bpdf(2000, y, @log_eval, exp(solt)*opt_cov, knots, N_pts);
+            [pchain, logLk, accRatio] = mcmcmetro_bpdf(2000, y, @log_eval, exp(solt)*opt_cov, areax,area_basis);
             fprintf(fileID, '%s\n\n', strcat('test accRatio = ',mat2str(accRatio)));
 
             [effSampN,effSampNErr,logEffSampN,logEffSampNErr,AR1coeff,nc_flag,fedup] = mcmcautocorr_bpdf(pchain);
@@ -145,21 +168,19 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
             fprintf(fileID, '%s\n\n', strcat('test [nc_flag] = ',mat2str([nc_flag])));
             fprintf(fileID, '%s\n\n', strcat('test [fedup] = ',mat2str([fedup])));
         end
-        [pchain,logLk,effSampN,accVec] = mcmcsampsiz_bpdf(100,@log_eval,exp(solt)*opt_cov,pchain,logLk,effSampN,accRatio,'metro',knots,N_pts,fileID);
+        [pchain,logLk,effSampN,accVec] = mcmcsampsiz_bpdf(100,@log_eval,exp(solt)*opt_cov,pchain,logLk,effSampN,accRatio,'metro',areax,area_basis,fileID);
         
         %set maximum likelihood model as first model of the pchain
         pchain([2:end+1],:) = pchain;
         pchain(1,:) = y;
         logLk([2:end+1]) = logLk;
         logLk(1) = -fval;
-    
     else
         pchain = y;
         logLk = -fval;
         accRatio = 0;
     end
-    
-    
+
     %subtract log(prior) values from each log(posterior) value in order to
     %return log(likelihood) values.
     for i = 1:length(logLk)
@@ -185,7 +206,7 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
 
         %calculate the log likelihood of observing the given zircon sample
         %given the set of coefficients (coefs)
-        log_prob = sp_log_prob_dens(knots, coefs, obs_data, 10, x_evalu);
+        log_prob = sp_log_prob_dens(coefs, 10, x_evalu, marg_basis);
         
         %add the log prior (a Cauchy distribution) to the log likelihood,
         %resulting in the log posterior; return the log posterior.
@@ -213,12 +234,12 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
         
         %Note that the the log_area value is typically on the order of
         %10^(-6) or less, making this somewhat of a formality.
-        log_area = sp_log_area(knots, coefs, N_pts);
+        log_area = sp_log_area(coefs,areax,area_basis);
         coefs = coefs - log_area;
         
         %calculate the log likelihood of observing the given zircon sample
         %given the set of coefficients (coefs)
-        log_prob = sp_log_prob_dens(knots, coefs, obs_data, 10, x_evalu);
+        log_prob = sp_log_prob_dens(coefs, 10, x_evalu, marg_basis);
         
         %add the log prior (a Cauchy distribution) to the log likelihood,
         %resulting in the log posterior; return the log posterior.
@@ -233,7 +254,7 @@ function [y,fval,hessian,pchain,logLk,accRatio] = pchain_gen(obs_data, knots, pr
         %zero by the constrained minimizer for the maximum likelihood
         %solution spline coefficient set.
         c = [];
-        ceq = (sp_log_area(knots, coefs, N_pts))^2;
+        ceq = (sp_log_area(coefs,areax,area_basis))^2;
         
     end
 end

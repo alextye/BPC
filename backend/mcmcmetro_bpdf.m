@@ -7,7 +7,7 @@
 %value, unless the value is repeated). This is so that the function can be
 %called repeatedly using the last iteration, and all the chains concatenated
 %simply to form one long valid chain.
-function [pchain,logLk,accRatio] = mcmcmetro_bpdf(Nchain,pinit,logLkFun,sig2,knots,N_pts)
+function [pchain,logLk,accRatio] = mcmcmetro_bpdf(Nchain,pinit,logLkFun,sig2,areax,area_basis)
 
     pinit = pinit(:)';
     if(size(sig2,1)~=size(sig2,2))
@@ -23,10 +23,10 @@ function [pchain,logLk,accRatio] = mcmcmetro_bpdf(Nchain,pinit,logLkFun,sig2,kno
     accHist= nan*ones(Nchain,1);
 
     EPSarea = 1e-5;
-    larea = sp_log_area(knots,pinit,N_pts);
+    larea = sp_log_area(pinit,areax,area_basis);
     while(abs(larea)>EPSarea)
         pinit = pinit - larea;
-        larea = sp_log_area(knots,pinit,N_pts);
+        larea = sp_log_area(pinit,areax,area_basis);
     end
     
     prev = pinit;
@@ -39,7 +39,7 @@ function [pchain,logLk,accRatio] = mcmcmetro_bpdf(Nchain,pinit,logLkFun,sig2,kno
     for(i=1:Nchain)
         prop = mvnrnd(prev,sig2,1);
         prop(find(prop<-50)) = -50;
-        prop = prop - sp_log_area(knots,prop,N_pts);
+        prop = prop - sp_log_area(prop,areax,area_basis);
         
         %propparam(i,:) = prop;
         propLogLk = -1*logLkFun(prop);

@@ -73,6 +73,8 @@ function [y, sampnames] = evalBPC(folderpath, varargin)
     
     h = parfor_progressbar((numfids*(numfids-1))/2,'Reading PMEs');
     
+    nsrLk = 0;
+    
     for i = 1:numfids
         for j = i+1:numfids
             %try to find files necessary for BPC uncertainty estimations
@@ -95,21 +97,20 @@ function [y, sampnames] = evalBPC(folderpath, varargin)
             
             %if proper files do not exist, do not estimate BPC uncertainty.
             if size(nametest,1)>0
+                
                 jrLk = csvread(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'jointML.csv'));
-                srLk1 = csvread(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'resamples.csv'),0,0,[0 0 0 length(jrLk)-1]);
-                srLk2 = csvread(strcat(folderpath,'unc/',fnames(j).name(1:end-4),'resamples.csv'),0,0,[0 0 0 length(jrLk)-1]);
-                rstd = std(jrLk-srLk1'-srLk2');
+                srLk1 = csvread(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'resamples.csv'),0,0,[0 0 0 sqrt(length(jrLk))-1]);
+                srLk2 = csvread(strcat(folderpath,'unc/',fnames(j).name(1:end-4),'resamples.csv'),0,0,[0 0 0 sqrt(length(jrLk))-1]);
+                
+                idx1 = repmat([1:sqrt(length(jrLk))],1,sqrt(length(jrLk)));
+                idx2 = sort(idx1);
+                
+                rstd = std(jrLk-srLk1(idx1)-srLk2(idx2));
                 mstd = sqrt(jstd(i,j)^2 + sstd(i)^2 + sstd(j)^2);
-%                 ssize1 = ssize(i);
-%                 ssize2 = ssize(j);
-%                 ssizetot = ssize1 + ssize2;
-%                 BPCtemp = 1-(jrLk-srLk1'-srLk2')./(ssize1*log(ssize1/ssizetot) + ssize2*log(ssize2/ssizetot));
-%                 keyboard
                 dstd(i,j) = max(rstd,mstd);
             else
                 dstd(i,j) = nan;
             end
-            
             h.iterate();
         end
     end
@@ -159,9 +160,6 @@ function [y, sampnames] = evalBPC(folderpath, varargin)
         BPCs = BPCs(idx,:);
         BPCs = BPCs(:,idx);
     end
-
-    
-
     
     %display BPC data in figure
     figure(2);

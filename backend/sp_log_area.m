@@ -1,23 +1,29 @@
-function y = sp_log_area(knots, coefs, N_pts)
+function y = sp_log_area(coefs, x, area_basis)
     %approximate area under a log-probability plot (when translated to
     %linear space) using the trapezoid method.
     
     %PARAMETERS
-    %knots - knot locations for b-spline
     %coefs - spline coefficients
-    %N_pts - number of points to use when discretizing the b-spline
-    %   function
+    %x - the set of x values for which function value is queried to
+    %calculate area, is constant throughout a given run of pchain_gen (aka 
+    %a single MCMC routine).
+    %area_basis - a matrix consisting of the impulse response of each
+    %value in x to the coefficients, i.e. what would the y value be at each
+    %x location if a given coefficient were set to 1.  This value can be
+    %multiplied by the coefficient value in the current model to determine
+    %the x value given the current model.
     
     %OUTPUT
     %y - log area underneath the candidate PDF constructed from the spline
     %coefficients in coefs.
 
-    x = min(knots):range(knots)/N_pts:max(knots);
+    %figure out each the function value at each x location by multiplying
+    %the impulse responses of each x to each coefficient by the value of
+    %that coefficient and summing across all coefficients
+    coefsmat = repmat(reshape(coefs,1,[]),size(area_basis,1),1);
+    fnvals = sum(area_basis.*coefsmat,2);
     
-    %exponentiate the b-spline curve--the b-spline curve is in log
-    %probability density - log age space.
-    p = exp(fnval(spmak(knots, coefs), x));
-    y = log(trapz(x, p));
-    
-    
+    %trapezoidal approximation of the integral under the exponentiated
+    %curve
+    y = trapz(x,exp(fnvals))-1;
 end

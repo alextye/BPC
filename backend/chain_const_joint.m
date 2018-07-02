@@ -1,6 +1,6 @@
 %Alex Tye
 %Dec 2016
-function [pchain, logLk] = chain_const_joint(N_coefs, obs_data1, obs_data2, x_min, x_max, p_sig, delta, N_pts,fileID)
+function [pchain, logLk, fileID] = chain_const_joint(N_coefs, obs_data1, obs_data2, x_min, x_max, p_sig, delta, N_pts,filename,QUICKMFLAG)
 
 %function constructs expected values and covariance matrix that are 
 %parameters for the prior probability distribution and call function that
@@ -50,10 +50,14 @@ function [pchain, logLk] = chain_const_joint(N_coefs, obs_data1, obs_data2, x_mi
 
     obs_data_comp = [obs_data1; obs_data2];
 
+    fileID = fopen(filename,'w');
+    
     %call function to sample the posterior distribution that corresponds to
     %the 'joint' zircon sample, which includes the ages of both zircon
     %samples
 
-    [best_coefs, bestLk, hessian, pchain, logLk, accRatio] = pchain_gen(obs_data_comp, knots, priors_mu, cov_prior, N_pts, 1, fileID);
+    [best_coefs, bestLk, hessian, pchain, logLk, accRatio] = pchain_gen(obs_data_comp, knots, priors_mu, cov_prior, N_pts, 1, fileID,QUICKMFLAG);
 
+    fclose(fileID);
+    
 end

@@ -1,4 +1,4 @@
-function y = makePME(folderpath, x_min, x_max, varargin)
+function canceled = makePME(folderpath, x_min, x_max, varargin)
 
 %function generates representative samples of the posteriors of the set of
 %zircon samples contained within folderpath, as well as the 'joint' samples
@@ -40,25 +40,48 @@ function y = makePME(folderpath, x_min, x_max, varargin)
 %Our splining procedure uses a natural logarithmic age scale, so x_min
 %values of 0 are prohibited and values of <1 are not suggested.
 
-%varargin is optionally the number of cores to use for processing
+%varargin{1} is optionally the number of cores to use for processing
+%varargin{2} is optionally the flag that tells the routine whether to
+%account for analytical uncertainties on grain ages.
+%varargin{3} optionally flags the non-Bayesian 'quick mode'
+%varargin{4} flags whether to overwrite existing PME files (default is not)
+%varargin{5} is optionally the number of models to retain from the inferred
+    %PMEs
 
     delete(gcp('nocreate'));
+    
+    %ensure the parallel pool is closed upon completion
+    cancelFutures = onCleanup(@() delete(gcp('nocreate')));
+    canceled = 0;
 
+    if size(varargin,2)>4
+        maxmodelspec = varargin{5};
+    else
+        maxmodelspec = 0;
+    end
+    
+    if size(varargin,2)>3
+        OWFLAG = varargin{4};
+    else
+        OWFLAG = 0;
+    end
+    
+    if size(varargin,2)>2
+        QUICKMFLAG = varargin{3};
+    else
+        QUICKMFLAG = 0;
+    end
+    
+    if size(varargin,2)>1
+        AUFLAG = varargin{2};
+    else
+        AUFLAG = 1;
+    end
+    
     if size(varargin,2)>0
         corespec = varargin{1};
     else
         corespec = 0;
-    end
-
-    %start parpool
-    if corespec == 0
-        defaultProfile = parallel.defaultClusterProfile;
-        myCluster = parcluster(defaultProfile);
-        parpool(myCluster);
-    else
-        defaultProfile = parallel.defaultClusterProfile;
-        myCluster = parcluster(defaultProfile);
-        parpool(myCluster,corespec);
     end
 
     %retrieve the names of zircon sample data files.
@@ -86,6 +109,9 @@ function y = makePME(folderpath, x_min, x_max, varargin)
         lsampages{i} = sampages{i};
         lsampages{i}(:,1) = log(sampages{i}(:,1));
         lsampages{i}(:,2) = sampages{i}(:,2)./sampages{i}(:,1);
+        if ~AUFLAG
+            lsampages{i}(:,2) = 0;
+        end
     end
     
     
@@ -113,22 +139,46 @@ function y = makePME(folderpath, x_min, x_max, varargin)
         end
     end
 
-    h = parfor_progressbar(k,'Inferring PMEs... (can take minutes to hours)');
+    h = waitbar(0,'Inferring PMEs... (can take minutes to hours)','CreateCancelBtn','setappdata(gcbf,''canceling'',1)');
+
     %iterate through the zircon sample datafiles in folderpath, generating
     %a Markov chain (posterior sample of possible probability models) for
     %each zircon sample.
-    parfor l = 1:k
+    
+    numActive = 0;
+    isactive = zeros(1,k);
+
+    for l = 1:k
+                
         if l<=numfids
             i = l;
             %test for whether the Markov chain already exists; this allows the
             %script to be terminated and restarted with minimal consequence.
+            %if the user has chosen to overwrite existing files, then
+            %perform the analysis no matter whether the file already exists
+            %or not.
             nametest = dir(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'logLk.csv'));
-            if(size(nametest,1)==0)
-                fileID = fopen(strcat(folderpath,'log/',fnames(i).name(1:end-4),'log.txt'),'w');
-                [pchain, logLk] = chain_const(N_coefs,lsampages{i},lxmin,lxmax,p_sig,delta,N_pts,fileID);
-                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'chain.csv'),pchain);
-                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'logLk.csv'),logLk);
-                fclose('all');
+            if(size(nametest,1)==0|OWFLAG)
+                
+                %start parpool if not already open
+                if isempty(gcp('nocreate'))
+                    if corespec == 0
+                        defaultProfile = parallel.defaultClusterProfile;
+                        myCluster = parcluster(defaultProfile);
+                        parpool(myCluster);
+                    else
+                        defaultProfile = parallel.defaultClusterProfile;
+                        myCluster = parcluster(defaultProfile);
+                        parpool(myCluster,corespec);
+                    end
+                end
+                
+                numActive = numActive + 1;
+                isactive(l) = 1;
+                filename = strcat(folderpath,'log/',fnames(i).name(1:end-4),'log.txt');
+                
+                %add the operations to the parallelized function queue.
+                F(numActive) = parfeval(@chain_const,2,N_coefs,lsampages{i},lxmin,lxmax,p_sig,delta,N_pts,filename,QUICKMFLAG);
             end
         else
 
@@ -138,17 +188,66 @@ function y = makePME(folderpath, x_min, x_max, varargin)
 
             [i, j] = find(idxguide==l);
             nametest = dir(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'logLk.csv'));
-            if(size(nametest,1)==0)
-                fileID = fopen(strcat(folderpath,'log/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'log.txt'),'w');
-                [jointchain, jointlogLk] = chain_const_joint(N_coefs,lsampages{i},lsampages{j},lxmin,lxmax,p_sig,delta,N_pts,fileID);
-                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'chain.csv'),jointchain);
-                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'logLk.csv'),jointlogLk);
-                fclose('all');
+            if(size(nametest,1)==0|OWFLAG)
+                numActive = numActive + 1;
+                isactive(l) = 1;
+                filename = strcat(folderpath,'log/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'log.txt');
+                
+                %add the operations to the parallelized function queue.
+                F(numActive) = parfeval(@chain_const_joint,2,N_coefs,lsampages{i},lsampages{j},lxmin,lxmax,p_sig,delta,N_pts,filename,QUICKMFLAG);
             end
         end
-        h.iterate();
+        
     end
-    close(h);
+    
+    waitbar(1-numActive/k);
+    
+    activeIdx = find(isactive);
+    l = 0;
+
+    %retrieve the results from the parallelized function queue while also
+    %continuing to check for whether the user has canceled the operation.
+    while l<numActive
+        
+        if getappdata(h,'canceling')
+            canceled = 1;
+            break
+        end
+        
+        [Fidx, pchain, logLk] = fetchNext(F,2);
+        
+        %thin chain for writing to disk if specified
+        if length(logLk) > maxmodelspec & maxmodelspec > 0
+            %preserve max. likelihood model at head of each chain
+            pchain1 = pchain(1,:);
+            logLk1 = logLk(1);
+            
+            writeidx = floor([1:maxmodelspec] * length(logLk)/maxmodelspec);
+            pchain = pchain(writeidx,:);
+            logLk = logLk(writeidx);
+            
+            pchain(1,:) = pchain1;
+            logLk(1) = logLk1;
+        end
+        
+        if ~isempty(Fidx)
+            completedIdx = activeIdx(Fidx);
+        
+            if completedIdx <= numfids
+                i = completedIdx;
+                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'chain.csv'),pchain);
+                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'logLk.csv'),logLk);
+            else
+                [i, j] = find(idxguide==completedIdx);
+                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'chain.csv'),pchain);
+                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'logLk.csv'),logLk);
+            end
+            l = l + 1;
+            waitbar(1-(numActive-l)/k);
+        end
+        
+    end
+    
+    delete(h);
     delete(gcp('nocreate'));
-%    h = msgbox('makePME complete.');
 end

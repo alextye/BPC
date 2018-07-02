@@ -22,7 +22,7 @@ function varargout = PME2CSV_GUI(varargin)
 
 % Edit the above text to modify the response to help PME2CSV_GUI
 
-% Last Modified by GUIDE v2.5 15-Feb-2018 12:07:49
+% Last Modified by GUIDE v2.5 17-May-2018 11:27:08
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -263,25 +263,19 @@ function run_Callback(hObject, eventdata, handles)
 % handles    structure with handles and user data (see GUIDATA)
 
 linscale = get(handles.linscale,'value');
+linagescale = get(handles.linagescale,'value');
 folderpath = strcat(get(handles.folderdisp,'string'),'/');
 sampnames = get(handles.samplelist,'string');
 toplot = get(handles.samplelist,'value');
 xmin = str2num(get(handles.xmin,'string'));
 xmax = str2num(get(handles.xmax,'string'));
 cores = get(handles.cores,'string');
-xquery = get(handles.queryages,'Data');
+Npts = str2num(get(handles.Npts,'string'));
 thin = get(handles.thin,'string');
 if ~isempty(thin)
     thin = str2num(thin);
 else
     thin = 0;
-end
-
-if iscell(xquery)
-    xquery = xquery(~cellfun('isempty',xquery));
-    m = zeros(size(xquery,1),size(xquery,2));
-    m = str2double(xquery);
-    xquery = m;
 end
 
 if ~isempty(cores)
@@ -292,16 +286,22 @@ end
 
 out = evalc('mkdir(strcat(folderpath,''PMEvalues''))');
 
+%h = waitbar(0,'Outputting PME values');
+
 for i = 1:length(toplot)
     if i > 1
         corespec = -1;
     end
 	sampname = sampnames{toplot(i)};
-    PME2CSV(folderpath,sampname,xmin,xmax,xquery,1-linscale,strcat(folderpath,'PMEvalues/'),strcat(sampname,'PMEvals.csv'),corespec,thin);
+    PME2CSV(folderpath,sampname,xmin,xmax,Npts,1-linagescale,1-linscale,strcat(folderpath,'PMEvalues/'),strcat(sampname,'PMEvals.csv'),corespec,thin);
+%    waitbar(i/length(toplot));
 end
 
+msgbox('PME2CSV complete.');
+
+%delete(h);
 delete(gcp('nocreate'));
-h = msgbox('PME2CSV complete.');
+
 
 
 % --- Executes on button press in showdot.
@@ -354,28 +354,6 @@ function linagescale_Callback(hObject, eventdata, handles)
 % Hint: get(hObject,'Value') returns toggle state of linagescale
 
 
-% --- Executes during object creation, after setting all properties.
-function queryages_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to queryages (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    empty - handles not created until after all CreateFcns called
-
-set(hObject, 'Data', cell(1000,1));
-set(hObject, 'ColumnEditable', true);
-
-
-% --- Executes on button press in importcsv.
-function importcsv_Callback(hObject, eventdata, handles)
-% hObject    handle to importcsv (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-[FileName,PathName,FilterIndex] = uigetfile('.csv');
-xquery = csvread(strcat(PathName,'/',FileName));
-set(handles.queryages,'Data',xquery);
-
-
-
 function thin_Callback(hObject, eventdata, handles)
 % hObject    handle to thin (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
@@ -396,3 +374,35 @@ function thin_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
+
+
+
+function Npts_Callback(hObject, eventdata, handles)
+% hObject    handle to Npts (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of Npts as text
+%        str2double(get(hObject,'String')) returns contents of Npts as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function Npts_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to Npts (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+% --- Executes on button press in linagescale.
+function checkbox7_Callback(hObject, eventdata, handles)
+% hObject    handle to linagescale (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of linagescale

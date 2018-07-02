@@ -1,4 +1,4 @@
-function z = PME2CSV(folderpath,name,x_min,x_max,xvals,logPDFs,savepath,savename,varargin)
+function z = PME2CSV(folderpath,name,x_min,x_max,Npts,logage,logPDFs,savepath,savename,varargin)
     
 %OUTPUT
 %z is a dummy variable
@@ -38,8 +38,8 @@ function z = PME2CSV(folderpath,name,x_min,x_max,xvals,logPDFs,savepath,savename
         thin = 0;
     end
     
-    %A corespect value of -1 indicates not to close and reopen the parallel
-    %pool
+    %A corespec value of -1 indicates not to close and reopen the parallel
+    %pool, for instance if multiple samples are being queried.
     if corespec~=-1
         delete(gcp('nocreate'));
     end
@@ -58,8 +58,6 @@ function z = PME2CSV(folderpath,name,x_min,x_max,xvals,logPDFs,savepath,savename
     %log transform x_min and x_max and xvals
     x_min = log(x_min);
     x_max = log(x_max);
-    xvalslin = xvals;
-    xvals = log(xvals);
     
     %set knot locations for spline
     N_coefs=50; %by default
@@ -71,34 +69,52 @@ function z = PME2CSV(folderpath,name,x_min,x_max,xvals,logPDFs,savepath,savename
         idx = randperm(size(pchain,1),thin);
         pchain = pchain(idx,:);
     end
+        
+    
+    PDFs = zeros(size(pchain,1),Npts);
+    
     
     %set x values at which to evaluate each PDF, dictated by x_min,
     %x_max, and x_res
 
-    PDFs = zeros(size(pchain,1),length(xvals));
+    xvals = zeros(1,Npts);
+    if logage
+        xvals = linspace(x_min,x_max,Npts);
+    else
+        xvals = log(linspace(exp(x_min),exp(x_max),Npts));
+    end
     
     %generate logPDF or linear PDF function values at indicated x-values 
     %for all probability chains
-
+    
     h = parfor_progressbar(size(PDFs,1),'Evaluating PDFs...');
     parfor i = 1:size(PDFs,1)
         if ~logPDFs
             PDFs(i,:) = exp(fnval(spmak(knots,pchain(i,:)),xvals));
+            
+            %if linear age is requested, divide the PDF values (valid for
+            %log age scale) by the exponentiated x values, which results in
+            %properly scaled peak heights
+            if ~logage
+                PDFs(i,:) = PDFs(i,:)./exp(xvals);
+            end
         else
             PDFs(i,:) = fnval(spmak(knots,pchain(i,:)),xvals);
+            if ~logage
+                PDFs(i,:) = PDFs(i,:)-xvals;
+            end
         end
+        
         h.iterate();
     end
     close(h);
     
-    %renormalize PDF area to match the x scale
-    if ~logPDFs
-        PDFs = PDFs * (x_max-x_min)/(exp(x_max)-exp(x_min));
-    else
-        PDFs = PDFs + log((x_max-x_min)/(exp(x_max)-exp(x_min)));
-    end
+	%if PDFs in linear age space are requested, exponentiate the x values for output.
+    if ~logage
+    	xvals = exp(xvals);
+	end
     
-    csvwrite(strcat(savepath,savename),[xvalslin';PDFs]');
+    csvwrite(strcat(savepath,savename),[xvals;PDFs]');
     
     z=0;
 end

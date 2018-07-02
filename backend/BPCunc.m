@@ -1,4 +1,4 @@
-function y = BPCunc(folderpath, x_min, x_max, varargin)
+function canceled = BPCunc(folderpath, x_min, x_max, varargin)
 
 %in order to estimate BPC uncertainty, function generates random subsamples
 %from PMEs of samples contained in folderpath. These random subsamples are
@@ -40,25 +40,26 @@ function y = BPCunc(folderpath, x_min, x_max, varargin)
 %Our splining procedure uses a natural logarithmic age scale, so x_min
 %values of 0 are prohibited and values of <1 are not suggested.
 
-%varargin is optionally the number of cores to use for processing
+%varargin{1} is optionally the number of cores to use for processing
+%varargin{2} indicates whether or not to overwrite existing files (default
+%is not).
 
     delete(gcp('nocreate'));
-
+    
+    %ensure the parallel pool is closed upon completion
+    cancelFutures = onCleanup(@() delete(gcp('nocreate')));
+    canceled = 0;
+    
+    if size(varargin,2)>1
+        OWFLAG = varargin{2};
+    else
+        OWFLAG = 0;
+    end
+    
     if size(varargin,2)>0
         corespec = varargin{1};
     else
         corespec = 0;
-    end
-
-    %start parpool
-    if corespec == 0
-        defaultProfile = parallel.defaultClusterProfile;
-        myCluster = parcluster(defaultProfile);
-        parpool(myCluster);
-    else
-        defaultProfile = parallel.defaultClusterProfile;
-        myCluster = parcluster(defaultProfile);
-        parpool(myCluster,corespec);
     end
 
     %retrieve the names of zircon sample data files.
@@ -91,8 +92,8 @@ function y = BPCunc(folderpath, x_min, x_max, varargin)
     %set parameters of resampling for uncertainty calculation--M is the
     %number of models selected for each PME, N is the number of samples
     %selected from each model
-    M = 5;
-    N = 20;
+    M = 3;
+    N = 4;
     
     %set parameters for splining and MCMC. See comments of chain_const.m
     %for discussion.
@@ -118,19 +119,42 @@ function y = BPCunc(folderpath, x_min, x_max, varargin)
         end
     end
 
-    h = parfor_progressbar(k+numfids,'Estimating uncertainties... (can take minutes to hours)');
+    h = waitbar(0,'Estimating uncertainties... (can take minutes to hours)','CreateCancelBtn','setappdata(gcbf,''canceling'',1)');
+    %h = parfor_progressbar(k+numfids,'Estimating uncertainties... (can take minutes to hours)');%,'CreateCancelBtn','setappdata(gcbf,''canceling'',1)');
+    %setappdata(h,'canceling',0);
+    
     %iterate through the zircon sample datafiles in folderpath, generating
     %synthetic samples for each real zircon sample by resampling PMEs.
     
-    parfor i = 1:numfids
+    numActive = 0;
+    isactive = zeros(1,numfids);
+    
+    for i = 1:numfids
+                
         %test for whether the resamples already exist; if so, bypass this
         %iteration. this allows the
         %script to be terminated and restarted with minimal consequence.
         nametest = dir(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'resamples.csv'));
         
-        if(size(nametest,1)==0)
-        
-            fileID = fopen(strcat(folderpath,'unc/log/',fnames(i).name(1:end-4),'log.txt'),'w');
+        if(size(nametest,1)==0|OWFLAG)
+            %start parpool if not already open
+            if isempty(gcp('nocreate'))
+                if corespec == 0
+                    defaultProfile = parallel.defaultClusterProfile;
+                    myCluster = parcluster(defaultProfile);
+                    parpool(myCluster);
+                else
+                    defaultProfile = parallel.defaultClusterProfile;
+                    myCluster = parcluster(defaultProfile);
+                    parpool(myCluster,corespec);
+                end
+            end
+            
+            %if BPC unc is being calculated for this sample, add 1 to the
+            %active counter and open/define variables
+            numActive = numActive + 1;
+            isactive(i) = 1;
+            filename = strcat(folderpath,'unc/log/',fnames(i).name(1:end-4),'log.txt');
             pchain = csvread(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'chain.csv'));
             idx = ceil(size(pchain,1)*rand(M,1));
             n = size(lsampages{i},1);
@@ -141,62 +165,117 @@ function y = BPCunc(folderpath, x_min, x_max, varargin)
             for m = 1:M
                 samples(:,[(m-1)*N+1:m*N]) = splinePDFsample(knots,pchain(idx(m),:),n,N);
             end
+            
             %calculate the maximum likelihood model and logLk for each
-            %sample
-            logLk = zeros(1,N*M);
-            for m = 1:M*N
-                [pchain, logLk(m)] = chain_const_noMCMC(N_coefs, [samples(:,m) zeros(n,1)], lxmin, lxmax, p_sig, delta, N_pts, fileID);
-            end
+            %sample by adding each calculation to the parallelized function
+            %queue
+            
+            F(numActive) = parfeval(@samp_maxL,2,N_coefs, samples, lxmin, lxmax, p_sig, delta, N_pts, filename);
+            
+            
+        end
+        waitbar(1-(k+numActive+numfids-i)/(numfids+k));
+    end
+    
+    activeIdx = find(isactive);
+    i = 0;
+    
+%retrieve function results as they are ready and write to disk, while 
+%waiting in case the user cancels the operation
+    while i<numActive
+        if getappdata(h,'canceling')
+            canceled = 1;
+            break
+        end
+        
+        %retrieve the latest ready result, but only wait for 2 seconds
+        %before checking for whether the user has canceled yet
+        [Fidx, samples, logLk] = fetchNext(F,2);
+        if ~isempty(Fidx)
+            completedIdx = activeIdx(Fidx);
             
             %write the output in the following format: n+1 x (M*N) 
             %matrix, each column one random subsample from the PME,
             %each line a grain age, except first line logLk of the
             %maximum likelihood model for each random subsample
-            csvwrite(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'resamples.csv'),[logLk; samples]);
-            
-            fclose('all');
+            csvwrite(strcat(folderpath,'unc/',fnames(completedIdx).name(1:end-4),'resamples.csv'),[logLk; samples]);
+            i = i + 1;
+            waitbar(1-(k+numActive-i)/(numfids+k));
         end
-        h.iterate();
     end
 
     %iterate through the possible pairs of zircon samples in folderpath,
     %comparing the synthetic samples for each pair.
-    parfor l = 1:k
-        [i, j] = find(idxguide==l);
-        nametest = dir(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'jointML.csv'));
-        if(size(nametest,1)==0)
-            %read the files corresponding to the PME subsamples for
-            %each detrital zircon sample corresponding to i, j
-            resamples1 = csvread(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'resamples.csv'),1);
-            resamples2 = csvread(strcat(folderpath,'unc/',fnames(j).name(1:end-4),'resamples.csv'),1);
-            fileID = fopen(strcat(folderpath,'unc/log/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'log.txt'),'w');
-            
-            n1 = size(lsampages{i},1);
-            n2 = size(lsampages{j},1);
+    if ~canceled
+        numActive = 0;
+        isactive = zeros(1,k);
 
-            %initialize logLk array for the maximum likelihood models
-            %of the joint samples
-            jlogLk = zeros(N*M,1);
+        for l = 1:k
 
-            %find the maximum likelihood model and maximum logLk for
-            %joint samples composed of pairs of the PME random
-            %subsamples generated above
-            for m = 1:N*M
+            [i, j] = find(idxguide==l);
+            nametest = dir(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'jointML.csv'));
+            if(size(nametest,1)==0|OWFLAG)
+                %start parpool if not already open
+                if isempty(gcp('nocreate'))
+                    if corespec == 0
+                        defaultProfile = parallel.defaultClusterProfile;
+                        myCluster = parcluster(defaultProfile);
+                        parpool(myCluster);
+                    else
+                        defaultProfile = parallel.defaultClusterProfile;
+                        myCluster = parcluster(defaultProfile);
+                        parpool(myCluster,corespec);
+                    end
+                end
                 
-                [jointchain, jlogLk(m)] = chain_const_noMCMC(N_coefs,[resamples1(:,m) zeros(n1,1);resamples2(:,m) zeros(n2,1)],lxmin,lxmax,p_sig,delta,N_pts,fileID);
+                numActive = numActive + 1;
+                isactive(l) = 1;
+                %read the files corresponding to the PME subsamples for
+                %each detrital zircon sample corresponding to i, j
+                resamples1 = csvread(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'resamples.csv'),1);
+                resamples2 = csvread(strcat(folderpath,'unc/',fnames(j).name(1:end-4),'resamples.csv'),1);
+                filename = strcat(folderpath,'unc/log/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'log.txt');
                 
+                %create 2 indices for the purpose of repeating the
+                %resamples--the point is to compare each resample from
+                %sample 1 to all the resamples of sample 2.
+                idx1 = repmat([1:N*M],1,N*M);
+                idx2 = sort(idx1);
+
+                %find the maximum likelihood model and maximum logLk for
+                %joint samples composed of pairs of the PME random
+                %subsamples generated above by adding each operation to the
+                %parallelized function queue.
+
+                F(numActive) = parfeval(@samp_maxL,2,N_coefs,[resamples1(:,idx1);resamples2(:,idx2)],lxmin,lxmax,p_sig,delta,N_pts,filename);
+
+    
             end
-            
-            %write the maximum logLk values for the pair of
-            %detrital zircon samples out to a file.
-                
-            csvwrite(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'jointML.csv'),jlogLk);
-            
-            fclose('all');
+            waitbar(1-(numActive+k-l)/(numfids+k));
         end
-        h.iterate();
+
+        activeIdx = find(isactive);
+        l=0;
+
+        %retrieve function results as they become available, again checking
+        %whether the user has canceled the operation every 2 minutes.
+        while l<numActive
+            if getappdata(h,'canceling')
+                canceled = 1;
+                break
+            end
+            [Fidx, samples, logLk] = fetchNext(F,2);
+            if ~isempty(Fidx)
+                completedIdx = activeIdx(Fidx);
+                [i, j] = find(idxguide==completedIdx);
+                %write the maximum logLk values for the pair of
+                %detrital zircon samples out to a file.
+                csvwrite(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'jointML.csv'),logLk);
+                l = l + 1;
+                waitbar(1-(numActive-l)/(numfids+k));
+            end
+        end
     end
-    close(h);
+    delete(h);
     delete(gcp('nocreate'));
-%    h = msgbox('BPCunc complete.');
 end

@@ -55,6 +55,8 @@ function BPCmainmenu_OpeningFcn(hObject, eventdata, handles, varargin)
 % Choose default command line output for BPCmainmenu
 handles.output = hObject;
 
+%dummy = spmak([0 0 0 0.5 1 1 1], [1 1 1 1 1]);
+
 license_names = {'Optimization Toolbox\n', 'Statistics and Machine Learning Toolbox\n', 'Curve Fitting Toolbox\n', 'Parallel Computing Toolbox\n', 'Global Optimization Toolbox\n'};
 installed = zeros(1,5);
 installed(1) = ~isempty(ver('optim'));

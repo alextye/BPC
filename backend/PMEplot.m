@@ -82,9 +82,15 @@ function z = PMEplotlin(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,s
     %read pchain
     pchain = csvread(strcat(folderpath,'chains/',name,'chain.csv'),0);
     
+    %thin (select a subset of models) for plotting if user has specified to
+    %do so.
     if thin > 0 & thin < size(pchain,1)
-        idx = randperm(size(pchain,1),thin);
+        %preserve MLM at head of pchain
+        pchain1 = pchain(1,:);
+        
+        idx = randperm(size(pchain,1)-1,thin);
         pchain = pchain(idx,:);
+        pchain(1,:) = pchain1;
     end
     
     %set x values at which to evaluate each PDF, dictated by x_min,

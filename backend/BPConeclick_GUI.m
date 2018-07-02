@@ -22,7 +22,7 @@ function varargout = BPConeclick_GUI(varargin)
 
 % Edit the above text to modify the response to help BPConeclick_GUI
 
-% Last Modified by GUIDE v2.5 11-Feb-2018 19:31:29
+% Last Modified by GUIDE v2.5 14-Jun-2018 12:27:22
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -148,32 +148,97 @@ if ~isempty(cores)
 else
     corespec = 0;
 end
-makePME(strcat(get(handles.folderdisp,'string'),'/'),str2double(get(handles.loage,'string')),str2double(get(handles.upage,'string')),corespec)
-BPCunc(strcat(get(handles.folderdisp,'string'),'/'),str2double(get(handles.loage,'string')),str2double(get(handles.upage,'string')),corespec)
-samporder = get(handles.samporder,'string');
-if ~isempty(samporder)&~strcmp(samporder,'y')&~strcmp(samporder,'Sample order')&~strcmp(samporder,'auto')
-    orderlist = str2num(samporder);
-    [results,namelist] = evalBPC(strcat(get(handles.folderdisp,'string'),'/'),orderlist);
-elseif strcmp(samporder,'auto')
-    [results,namelist] = evalBPC(strcat(get(handles.folderdisp,'string'),'/'));
-else
-    fnames = dir(strcat(get(handles.folderdisp,'string'),'/*.csv'));
-    [results,namelist] = evalBPC(strcat(get(handles.folderdisp,'string'),'/'),[1:size(fnames,1)]);
+
+auflag = get(handles.aucheck,'value');
+BPCuncswitch = get(handles.BPCuncswitch,'value');
+quickmode = get(handles.quickmode,'value');
+overwrite = get(handles.overwrite,'value');
+maxmodels = get(handles.maxmodels,'string');
+
+%if user desires to use quick mode, prevent BPC uncertainties from being
+%calculated, as they are unreliable.
+if quickmode & BPCuncswitch
+    BPCuncswitch = 0;
+    msgbox('BPC uncertainties will not be calculated when quick mode is in use.');
 end
 
-%output BPC data to tables
-BPCtableout = cell(length(namelist)+1);
-BPCtableout{1,1} = 'Sample';
-BPCtableout([2:end],1) = namelist;
-BPCtableout(1,[2:end]) = namelist';
-BPCtableout([2:end],[2:end]) = mat2cell(results(:,:,1),ones(1,length(namelist)),ones(1,length(namelist)));
-set(handles.BPCval,'Data',BPCtableout);
-BPCunctableout = cell(length(namelist)+1);
-BPCunctableout{1,1} = 'Sample';
-BPCunctableout([2:end],1) = namelist;
-BPCunctableout(1,[2:end]) = namelist';
-BPCunctableout([2:end],[2:end]) = mat2cell(results(:,:,2),ones(1,length(namelist)),ones(1,length(namelist)));
-set(handles.BPCunc,'Data',BPCunctableout);
+if ~isempty(maxmodels)
+    maxmodelspec = str2num(maxmodels);
+else
+    maxmodelspec = 0;
+end
+
+%hard minimum on number of models retained.
+if maxmodelspec > 0 & maxmodelspec < 1000
+    maxmodelspec = 1000;
+end
+
+%write run settings out to a log file
+out_settings = fopen(strcat(get(handles.folderdisp,'string'),'/','BPCrunsettingslog.txt'),'a');
+fprintf(out_settings, strcat(datestr(now),'\n'));
+fprintf(out_settings, 'directory = %s/\n',get(handles.folderdisp,'string'));
+fprintf(out_settings, 'min age = %s Ma\n',get(handles.loage,'string'));
+fprintf(out_settings, 'max age = %s Ma\n',get(handles.upage,'string'));
+fprintf(out_settings, 'Account for analytical uncertainties = %s\n',num2str(auflag));
+fprintf(out_settings, 'Calculate BPC uncertainties = %s\n',num2str(BPCuncswitch));
+fprintf(out_settings, 'Quick mode = %s\n',num2str(quickmode));
+fprintf(out_settings, 'Overwrite existing PME and BPC unc files = %s\n',num2str(overwrite));
+fprintf(out_settings, 'Max models (0 indicates all) = %s\n',num2str(maxmodelspec));
+fprintf(out_settings, 'Number of cores (0 indicates not specified) = %s\n',num2str(corespec));
+
+%if either makePME or BPCunc is canceled by user, the subsequent analysis
+%and plotting will not occur.
+
+tPMEstart = tic;
+%canceledPME flags whether the user canceled the operation during execution
+canceledPME = makePME(strcat(get(handles.folderdisp,'string'),'/'),str2double(get(handles.loage,'string')),str2double(get(handles.upage,'string')),corespec,auflag,quickmode,overwrite,maxmodelspec);
+tmakePME = toc(tPMEstart);
+
+%do not run the second part of the operation if the user canceled the first
+%part
+if ~canceledPME & BPCuncswitch
+    tBPCuncstart = tic;
+    canceledunc = BPCunc(strcat(get(handles.folderdisp,'string'),'/'),str2double(get(handles.loage,'string')),str2double(get(handles.upage,'string')),corespec,overwrite);
+    tBPCunc = toc(tBPCuncstart);
+else
+    canceledunc = 0;
+end
+
+fprintf(out_settings, 'PME inferrence runtime = %s seconds\n',num2str(tmakePME));
+fprintf(out_settings, 'PME inferrence cancelled during run = %s\n',num2str(canceledPME));
+if exist('tBPCunc')
+    fprintf(out_settings, 'Calculate BPC uncertainty runtime = %s seconds\n',num2str(tBPCunc));
+    fprintf(out_settings, 'Calculate BPC uncertainty cancelled during run = %s\n',num2str(canceledunc));
+end
+
+fprintf(out_settings,'***\n\n\n');
+
+if ~canceledPME & ~canceledunc
+    samporder = get(handles.samporder,'string');
+    if ~isempty(samporder)&~strcmp(samporder,'y')&~strcmp(samporder,'Sample order')&~strcmp(samporder,'auto')
+        orderlist = str2num(samporder);
+        [results,namelist] = evalBPC(strcat(get(handles.folderdisp,'string'),'/'),orderlist);
+    elseif strcmp(samporder,'auto')
+        [results,namelist] = evalBPC(strcat(get(handles.folderdisp,'string'),'/'));
+    else
+        fnames = dir(strcat(get(handles.folderdisp,'string'),'/*.csv'));
+        [results,namelist] = evalBPC(strcat(get(handles.folderdisp,'string'),'/'),[1:size(fnames,1)]);
+    end
+
+    %output BPC data to tables
+    BPCtableout = cell(length(namelist)+1);
+    BPCtableout{1,1} = 'Sample';
+    BPCtableout([2:end],1) = namelist;
+    BPCtableout(1,[2:end]) = namelist';
+    BPCtableout([2:end],[2:end]) = mat2cell(results(:,:,1),ones(1,length(namelist)),ones(1,length(namelist)));
+    set(handles.BPCval,'Data',BPCtableout);
+    BPCunctableout = cell(length(namelist)+1);
+    BPCunctableout{1,1} = 'Sample';
+    BPCunctableout([2:end],1) = namelist;
+    BPCunctableout(1,[2:end]) = namelist';
+    BPCunctableout([2:end],[2:end]) = mat2cell(results(:,:,2),ones(1,length(namelist)),ones(1,length(namelist)));
+    set(handles.BPCunc,'Data',BPCunctableout);
+end
 
 function loage_Callback(hObject, eventdata, handles)
 % hObject    handle to loage (see GCBO)
@@ -233,6 +298,65 @@ function cores_Callback(hObject, eventdata, handles)
 % --- Executes during object creation, after setting all properties.
 function cores_CreateFcn(hObject, eventdata, handles)
 % hObject    handle to cores (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+% --- Executes on button press in aucheck.
+function aucheck_Callback(hObject, eventdata, handles)
+% hObject    handle to aucheck (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of aucheck
+
+
+% --- Executes on button press in BPCuncswitch.
+function BPCuncswitch_Callback(hObject, eventdata, handles)
+% hObject    handle to BPCuncswitch (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of BPCuncswitch
+
+
+% --- Executes on button press in quickmode.
+function quickmode_Callback(hObject, eventdata, handles)
+% hObject    handle to quickmode (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of quickmode
+
+
+% --- Executes on button press in overwrite.
+function overwrite_Callback(hObject, eventdata, handles)
+% hObject    handle to overwrite (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of overwrite
+
+
+
+function maxmodels_Callback(hObject, eventdata, handles)
+% hObject    handle to maxmodels (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of maxmodels as text
+%        str2double(get(hObject,'String')) returns contents of maxmodels as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function maxmodels_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to maxmodels (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
 
