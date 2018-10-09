@@ -72,16 +72,20 @@ function z = PME2CSV(folderpath,name,x_min,x_max,Npts,logage,logPDFs,savepath,sa
         
     
     PDFs = zeros(size(pchain,1),Npts);
+    integrals = zeros(size(pchain,1),1);
     
     
     %set x values at which to evaluate each PDF, dictated by x_min,
     %x_max, and x_res
 
+    %set delx variable used to estimate PDF integrals
     xvals = zeros(1,Npts);
     if logage
         xvals = linspace(x_min,x_max,Npts);
+        delx = (x_max-x_min)/(Npts-1);
     else
         xvals = log(linspace(exp(x_min),exp(x_max),Npts));
+        delx = (exp(x_max)-exp(x_min))/(Npts-1);
     end
     
     %generate logPDF or linear PDF function values at indicated x-values 
@@ -98,6 +102,7 @@ function z = PME2CSV(folderpath,name,x_min,x_max,Npts,logage,logPDFs,savepath,sa
             if ~logage
                 PDFs(i,:) = PDFs(i,:)./exp(xvals);
             end
+            
         else
             PDFs(i,:) = fnval(spmak(knots,pchain(i,:)),xvals);
             if ~logage
@@ -112,9 +117,28 @@ function z = PME2CSV(folderpath,name,x_min,x_max,Npts,logage,logPDFs,savepath,sa
 	%if PDFs in linear age space are requested, exponentiate the x values for output.
     if ~logage
     	xvals = exp(xvals);
-	end
+    end
     
-    csvwrite(strcat(savepath,savename),[xvals;PDFs]');
+    %calculate Riemann summation approximate integrals
+    if ~logPDFs
+        integrals = delx * (sum(PDFs(:,[2:Npts-1]),2) + .5 * (PDFs(:,1)+PDFs(:,Npts)));
+    else
+        integrals = delx * (sum(exp(PDFs(:,[2:Npts-1])),2) + .5 * (exp(PDFs(:,1))+exp(PDFs(:,Npts))));
+    end
+    
+    %write header to file
+    fid = fopen(strcat(savepath,savename),'w'); 
+    fprintf(fid,'%s\n','Upper content line shows integrals (Riemann summation approximation method) of each PDF. Below this line the first column is x values and the successive columns are PDF values at the given x values. Integral values in first line correspond to PDF values directly below.  If integrals deviate from 1 too much increase the ''number of points'' field in the GUI.');
+    fprintf(fid,'%s\n','Integrals');
+    fclose(fid);
+    %write data to end of file
+    dlmwrite(strcat(savepath,savename),[0 integrals'],'-append');
+    fid = fopen(strcat(savepath,savename),'a'); 
+    fprintf(fid,'%s\n','x values, PDF values');
+    fclose(fid);
+    dlmwrite(strcat(savepath,savename),[xvals;PDFs]','-append');
+
+%    csvwrite(strcat(savepath,savename),[xvals;PDFs]');
     
     z=0;
 end
