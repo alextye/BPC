@@ -1,4 +1,4 @@
-function [y,fval,hessian,pchain,logLk,accRatio,areascale] = pchain_gen(obs_data, knots, priors_mu, priors_sigma, N_pts, MCMC_FLAG,varargin)
+function [y,fval,hessian,pchain,logLk,accRatio,pre_norm_area,logPost] = pchain_gen(obs_data, knots, priors_mu, priors_sigma, N_pts, MCMC_FLAG,varargin)
 %function solves for the maximum likelihood b-spline probability model to
 %describe a set of observed zircon ages. The function then optimally
 %executes a Metropolis-Hastings Markov Chain Monte Carlo (MCMC) search to
@@ -53,12 +53,49 @@ function [y,fval,hessian,pchain,logLk,accRatio,areascale] = pchain_gen(obs_data,
     %Markov processes.
     dof = 5;
     Np = length(priors_mu);
-
+    N_sig = 1;
+    logsigfrac = log(1/N_sig);
+    areaEPS = 1e-5;
+    n = size(obs_data,1);
+    
+    %define the first term of the prior--is constant
+    prior_term1 = log(gamma((dof+Np)/2)) - log(gamma(dof/2)) - Np/2*log(pi) - Np/2*log(dof) - 1/2*log(det(priors_sigma));
+    inv_priors_sigma = inv(priors_sigma);
+    
+    %define the fraction of 1 sigma over which to discretize the normal
+    %distribution for each point.
+    sig_frac = 1/N_sig;
+    
     %calculate x-values for function evaluation of candidate probability
     %models (PDFs) and the Gaussians that correspond to the measured age
     %and analytical uncertainty of each grain
-    x_evalu = x_eval(obs_data, 10);
+    x_evalu = x_eval(obs_data, N_sig);
     [marg_basis, areax, area_basis] = sp_marg_basis(knots,length(priors_mu),x_evalu,N_pts);
+    
+    if size(x_evalu,2)>1
+        %calculate the log of the function value of a Gaussian distribution
+        %from -4 sigma to 4 sigma, at interval sig_frac.
+        %also incorporate an empirical adjustment (fac) based on the
+        %comparison of the area of each column to the area of the normal
+        %distribution that column covers.
+        
+        lnorm_dens = [-4:sig_frac:4];
+        bins = [lnorm_dens-sig_frac/2 lnorm_dens(end)+sig_frac/2];
+        lnorm_dens = log(1/sqrt(2*pi)) - 0.5 * lnorm_dens.^2;
+        lfac = zeros(1,length(lnorm_dens));
+        for i = 1:length(lnorm_dens)
+            lfac(i) = log(normcdf(bins(i+1),0,1)-normcdf(bins(i),0,1))-lnorm_dens(i);
+        end
+        lnorm_dens = lnorm_dens+lfac;
+        
+        %replicate the log Gaussian function values found above to have as many
+        %rows as there are sample ages.
+        lnorm_densrep = repmat(lnorm_dens, size(obs_data,1), 1);
+    else
+        lnorm_densrep = ones(size(x_evalu));
+    end
+    
+    %keyboard
     
     %execute a constrained minimization to find the maximum likelihood PDF
     %for the given zircon sample. The minimized function is
@@ -70,12 +107,14 @@ function [y,fval,hessian,pchain,logLk,accRatio,areascale] = pchain_gen(obs_data,
     %the current PME.
     options = optimoptions(@fmincon,'Display','iter');
     options.MaxFunctionEvaluations = 10000;
-    [out,y,fval,exitflag,output,lambda,grad,hessian] = evalc('fmincon(@log_eval_opt,priors_mu,[],[],[],[],[],[],@log_area_loc,options)');
+    [out,y,fval,exitflag,output,grad,hessian] = evalc('fminunc(@log_eval_opt,priors_mu,options)');
+    %[out,y,fval,exitflag,output,lambda,grad,hessian] = evalc('fmincon(@log_eval_opt,priors_mu,[],[],[],[],[],[],@log_area_loc,options)');
     fprintf(fileID,'%s\n*******\n',out);
 
     opt_area = sp_log_area(y,areax,area_basis);
     fprintf(fileID, '%s\n\n', strcat('opt_area = ',mat2str(opt_area)));
 
+%    keyboard
     if(MCMC_FLAG==1|QUICKMFLAG==1)
         
         %use the nearest symmetric, positive-definite matrix to the inverse of
@@ -88,7 +127,8 @@ function [y,fval,hessian,pchain,logLk,accRatio,areascale] = pchain_gen(obs_data,
         %check and modify the covariance matrix so that it really reflects the
         %distances required to decrease the maximum likelihood by half in each
         %direction.
-        [opt_cov, Dcheck] = mvncovcheck(y,opt_cov,@log_eval_opt);
+        %keyboard
+        [opt_cov, Dcheck] = mvncovcheck(y,opt_cov,@log_eval);
 
         [out,opt_cov] = evalc('nearestSPD(opt_cov)');
         fprintf(fileID, '%s\n\n', strcat('corrected cov matrix = ',mat2str(opt_cov)));
@@ -127,6 +167,7 @@ function [y,fval,hessian,pchain,logLk,accRatio,areascale] = pchain_gen(obs_data,
             while(~(accRatio1 > 0.1 & accRatio2 > 0.1) | max(accRatio1,accRatio2)<0.24)
                 testt1 = testt1/(10^(1/4));
                 testt2 = testt2/(10^(1/4));
+                %keyboard
                 [pchain1, logLk1, accRatio1] = mcmcmetro_bpdf(2000, y, @log_eval, testt1*opt_cov, areax, area_basis);
                 [pchain2, logLk2, accRatio2] = mcmcmetro_bpdf(2000, y, @log_eval, testt2*opt_cov, areax, area_basis);
                 fprintf(fileID, '%s\n\n', strcat('testt1 = ',mat2str(testt1)));
@@ -178,15 +219,27 @@ function [y,fval,hessian,pchain,logLk,accRatio,areascale] = pchain_gen(obs_data,
     else
         pchain = y;
         logLk = -fval;
+        logPost = -fval;
         accRatio = 0;
     end
 
     %subtract log(prior) values from each log(posterior) value in order to
     %return log(likelihood) values.
+    pre_norm_area = zeros(size(pchain,1),1);
+    
+    %save the log(posterior) as logPost
+    logPost = logLk;
     for i = 1:length(logLk)
         coef = pchain(i,:);
-        logLk(i) = logLk(i) - sum(log(gamma((dof+Np)/2)) - log(gamma(dof/2)) - Np/2*log(pi) - Np/2*log(dof) - 1/2*log(det(priors_sigma)) - (dof+Np)/2*log(1+1/dof.*(coef-priors_mu)*inv(priors_sigma)*(coef-priors_mu)'));
+        logLk(i) = logLk(i) - prior_term1 + (dof+Np)/2*log(1+1/dof.*(coef-priors_mu)*inv_priors_sigma*(coef-priors_mu)');
+        log_area_return = sp_log_area(pchain(i,:),areax,area_basis);
+        pre_norm_area(i) = log_area_return;
+        while abs(log_area_return) > areaEPS
+            pchain(i,:) = pchain(i,:) - log_area_return;
+            log_area_return = sp_log_area(pchain(i,:),areax,area_basis);
+        end
     end
+%    keyboard
     
     function z = log_eval(coefs)
 
@@ -206,13 +259,18 @@ function [y,fval,hessian,pchain,logLk,accRatio,areascale] = pchain_gen(obs_data,
 
         %calculate the log likelihood of observing the given zircon sample
         %given the set of coefficients (coefs)
-        log_prob = sp_log_prob_dens(coefs, 10, x_evalu, marg_basis);
+        log_prob = sp_log_prob_dens(coefs, logsigfrac, x_evalu, marg_basis, lnorm_densrep);
+        log_area = sp_log_area(coefs,areax,area_basis);
         
         %add the log prior (a Cauchy distribution) to the log likelihood,
         %resulting in the log posterior; return the log posterior.
 
-        z = (-1)*(log_prob + sum(log(gamma((dof+Np)/2)) - log(gamma(dof/2)) - Np/2*log(pi) - Np/2*log(dof) - 1/2*log(det(priors_sigma)) - (dof+Np)/2*log(1+1/dof.*(coefs-priors_mu)*inv(priors_sigma)*(coefs-priors_mu)')));
-    
+        z = (-1)*(log_prob - n*log_area + prior_term1) + (dof+Np)/2*log(1+1/dof.*(coefs-priors_mu)*inv_priors_sigma*(coefs-priors_mu)');
+
+%         if abs(sp_log_area(coefs,areax,area_basis)) > areaEPS
+%             z = Inf;
+%         end
+        
     end
 
     function z = log_eval_opt(coefs)
@@ -235,15 +293,19 @@ function [y,fval,hessian,pchain,logLk,accRatio,areascale] = pchain_gen(obs_data,
         %Note that the the log_area value is typically on the order of
         %10^(-6) or less, making this somewhat of a formality.
         log_area = sp_log_area(coefs,areax,area_basis);
-        coefs = coefs - log_area;
+        %coefs = coefs - log_area;
         
         %calculate the log likelihood of observing the given zircon sample
         %given the set of coefficients (coefs)
-        log_prob = sp_log_prob_dens(coefs, 10, x_evalu, marg_basis);
+        log_prob = sp_log_prob_dens(coefs, logsigfrac, x_evalu, marg_basis, lnorm_densrep);
         
         %add the log prior (a Cauchy distribution) to the log likelihood,
         %resulting in the log posterior; return the log posterior.
-        z = (-1)*(log_prob + sum(log(gamma((dof+Np)/2)) - log(gamma(dof/2)) - Np/2*log(pi) - Np/2*log(dof) - 1/2*log(det(priors_sigma)) - (dof+Np)/2*log(1+1/dof.*(coefs-priors_mu)*inv(priors_sigma)*(coefs-priors_mu)')));
+        z = (-1)*(log_prob - n*log_area + prior_term1) + (dof+Np)/2*log(1+1/dof.*(coefs-priors_mu)*inv_priors_sigma*(coefs-priors_mu)');
+        
+%         if abs(sp_log_area(coefs,areax,area_basis)) > areaEPS
+%             z = Inf;
+%         end
         
     end
 

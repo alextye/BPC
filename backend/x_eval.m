@@ -1,4 +1,4 @@
-function y = x_eval(obs_data, N_sig)
+function y = x_eval(obs_data, N_sig, varargin)
 
     %function generates a set of x values that correspond with age
     %observations to be queried during the MCMC process for likelihood
@@ -16,6 +16,18 @@ function y = x_eval(obs_data, N_sig)
     %(i.e. the set of values 96, 97, 98, 99, ...).
     
     %OUTPUT
+    
+    if size(varargin,2)>1
+        lxmax = varargin{2};
+    else
+        lxmax = log(4000);
+    end
+    
+    if size(varargin,2)>1
+        lxmin = varargin{1};
+    else
+        lxmin = 0;
+    end
     
     %y is the x locations to be queried later on.
 
@@ -48,6 +60,11 @@ function y = x_eval(obs_data, N_sig)
         for i = 1:length(obs_data_m)
             try
                 x_eval2(i,:) = [obs_data_m(i) - 4 * obs_data_s(i) : obs_data_s(i) * sig_frac : obs_data_m(i) + 4 * obs_data_s(i)];
+                %eliminate sample points outside the modeling range,
+                %instead setting them to the maximum or minimum allowable
+                %value
+                x_eval2(find(x_eval2<lxmin)) = lxmin;
+                x_eval2(find(x_eval2>lxmax)) = lxmax;
             catch
                 keyboard;
             end

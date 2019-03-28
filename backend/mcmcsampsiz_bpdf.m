@@ -60,22 +60,26 @@ function [pchain,logLk,effSampN,accVec] = mcmcsampsiz_bpdf(NmcEff,logLkFun,...
         [effSampN,dump,dump,dump,dump,nc_flag] = mcmcautocorr_bpdf(pchain);
         fprintf(fileID, '%s\n\n', strcat('effSampN = ',mat2str(effSampN)));
         fprintf(fileID, '%s\n\n', strcat('nc_flag = ',mat2str(nc_flag)));
-        while(nc_flag==1)
-            [pchainRem,logLkRem,accVecRem]=...
-                mcmcfun(NchainRem,pchain(end,:),logLkFun,sig2,areax,area_basis);
-            pchain = [pchain;pchainRem];
-            logLk = [logLk; logLkRem];
-            accVec = (accVec*(length(logLk)-NchainRem) + ...
-                accVecRem*NchainRem)/length(logLk)
-            [effSampN,dump,dump,dump,dump,nc_flag] = mcmcautocorr_bpdf(pchain);
-            effSampN
-            nc_flag
-        end
+%         while(nc_flag==1)
+%             [pchainRem,logLkRem,accVecRem]=...
+%                 mcmcfun(NchainRem,pchain(end,:),logLkFun,sig2,areax,area_basis);
+%             pchain = [pchain;pchainRem];
+%             logLk = [logLk; logLkRem];
+%             accVec = (accVec*(length(logLk)-NchainRem) + ...
+%                 accVecRem*NchainRem)/length(logLk)
+%             [effSampN,dump,dump,dump,dump,nc_flag] = mcmcautocorr_bpdf(pchain);
+%             effSampN
+%             nc_flag
+%         end
+
+        
         NchainTarget = max(ceil(NmcEff*effSampN));
         fprintf(fileID, '%s\n\n', strcat('NchainTarget = ',mat2str(NchainTarget)));
         NchainRem = NchainTarget-size(pchain,1);
         fprintf(fileID, '%s\n\n', strcat('NchainRem = ',mat2str(NchainRem)));
-        
+        if nc_flag==1
+            NchainRem = 0;
+        end
     end
     fprintf(fileID, '%s\n\n', strcat('NmcEff = ',mat2str(NmcEff)));
     fprintf(fileID, '%s\n\n', strcat('effSampN = ',mat2str(effSampN)));

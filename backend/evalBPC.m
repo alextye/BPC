@@ -39,9 +39,11 @@ function [y, sampnames] = evalBPC(folderpath, varargin)
     numfids = length(fnames);
     
     sLk = zeros(1,numfids);
-    sstd = zeros(1,numfids);
+    %sstd = zeros(1,numfids);
+    ssamp = zeros(numfids,1000);
     jLk = zeros(numfids);
-    jstd = zeros(numfids);
+    %jstd = zeros(numfids);
+    jsamp = zeros(numfids,numfids,1000);
     dLk = zeros(numfids);
     dstd = zeros(numfids);
     ssize = zeros(1,numfids);
@@ -63,7 +65,8 @@ function [y, sampnames] = evalBPC(folderpath, varargin)
     for i = 1:numfids
         logLk = csvread(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'logLk.csv'),0);
         sLk(i) = mean(logLk);
-        sstd(i) = std(logLk);
+        ssamp(i,:) = logLk(randperm(length(logLk),1000));
+        %sstd(i) = std(logLk);
     end
 
     %read the mean and standard deviation of log likelihood of Markov chain
@@ -73,44 +76,19 @@ function [y, sampnames] = evalBPC(folderpath, varargin)
     
     h = parfor_progressbar((numfids*(numfids-1))/2,'Reading PMEs');
     
-    nsrLk = 0;
-    
     for i = 1:numfids
         for j = i+1:numfids
-            %try to find files necessary for BPC uncertainty estimations
-            nametest = dir(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'jointML.csv'));
             
             %read the log likelihood values of the joint PME and calculate
             %the difference between logLk of joint PME versus logLk of each
             %individual PME
             logLk = csvread(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'logLk.csv'),0);
             jLk(i,j) = mean(logLk);
-            jstd(i,j) = std(logLk);
+            jsamp(i,j,:) = logLk(randperm(length(logLk),1000));
+            %jstd(i,j) = std(logLk);
             dLk(i,j) = jLk(i,j) - sLk(i) - sLk(j);
-            
-            %if the proper files exist, estimate the uncertainty on BPC
-            %from the resampling simulation procedure, compare this
-            %estimate against the inherent (or 'measurement-based')
-            %uncertainty related to the spread in logLk values of each PME,
-            %and choose the maximum of the two as the representative
-            %uncertainty on a given BPC value.
-            
-            %if proper files do not exist, do not estimate BPC uncertainty.
-            if size(nametest,1)>0
-                
-                jrLk = csvread(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'jointML.csv'));
-                srLk1 = csvread(strcat(folderpath,'unc/',fnames(i).name(1:end-4),'resamples.csv'),0,0,[0 0 0 sqrt(length(jrLk))-1]);
-                srLk2 = csvread(strcat(folderpath,'unc/',fnames(j).name(1:end-4),'resamples.csv'),0,0,[0 0 0 sqrt(length(jrLk))-1]);
-                
-                idx1 = repmat([1:sqrt(length(jrLk))],1,sqrt(length(jrLk)));
-                idx2 = sort(idx1);
-                
-                rstd = std(jrLk-srLk1(idx1)-srLk2(idx2));
-                mstd = sqrt(jstd(i,j)^2 + sstd(i)^2 + sstd(j)^2);
-                dstd(i,j) = max(rstd,mstd);
-            else
-                dstd(i,j) = nan;
-            end
+            %keyboard
+            dstd(i,j) = std(squeeze(jsamp(i,j,:))' - squeeze(ssamp(i,:)) - squeeze(ssamp(j,:)));
             h.iterate();
         end
     end

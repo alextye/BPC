@@ -22,7 +22,7 @@ function varargout = PMEplot_GUI(varargin)
 
 % Edit the above text to modify the response to help PMEplot_GUI
 
-% Last Modified by GUIDE v2.5 19-Feb-2018 09:06:20
+% Last Modified by GUIDE v2.5 20-Mar-2019 16:41:17
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -265,6 +265,11 @@ function run_Callback(hObject, eventdata, handles)
 linscale = get(handles.linscale,'value');
 folderpath = strcat(get(handles.folderdisp,'string'),'/');
 sampnames = get(handles.samplelist,'string');
+hybrid = 0;
+linage = get(handles.linage,'value');
+if hybrid & linage
+    linage = 0;
+end
 toplot = get(handles.samplelist,'value');
 xmin = str2num(get(handles.xmin,'string'));
 xmax = str2num(get(handles.xmax,'string'));
@@ -290,16 +295,16 @@ sepfig = get(handles.sepfig,'value');
 
 for i = 1:length(toplot)
 	sampname = sampnames{toplot(i)};
-    fig = fignum + (i-1) * (1 + 2*sepfig);
+    fig = fignum + (i-1) * (1 + 2*sepfig) * (hybrid+1);
     %set corespec to allow the plotting to run without shutting down and
     %restarting the parallel pool for each plot
     if i > 1
         corespec = -1;
     end
     if showtitle
-        PMEplot(folderpath,sampname,xmin,xmax,xres,yres,fig,showMLM,showdot,1-linscale,thin,corespec,sepfig,sampname);
+        PMEplot(folderpath,sampname,xmin,xmax,xres,yres,fig,showMLM,showdot,1-linscale,thin,linage,hybrid,corespec,sepfig,sampname);
     else
-        PMEplot(folderpath,sampname,xmin,xmax,xres,yres,fig,showMLM,showdot,1-linscale,thin,corespec,sepfig);
+        PMEplot(folderpath,sampname,xmin,xmax,xres,yres,fig,showMLM,showdot,1-linscale,thin,linage,hybrid,corespec,sepfig);
     end
 end
 delete(gcp('nocreate'));
@@ -367,3 +372,21 @@ function thin_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
+
+
+% --- Executes on button press in hybridage.
+function hybridage_Callback(hObject, eventdata, handles)
+% hObject    handle to hybridage (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of hybridage
+
+
+% --- Executes on button press in linage.
+function linage_Callback(hObject, eventdata, handles)
+% hObject    handle to linage (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of linage

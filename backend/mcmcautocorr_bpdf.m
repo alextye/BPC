@@ -74,7 +74,7 @@ function [effSampN,effSampNErr,logEffSampN,logEffSampNErr,AR1coeff, nc_flag, fed
     AR1coeff = zeros(1,Nparam);
     AR1err = zeros(1,Nparam);
     
-    tic
+    %tic
     
     for(i=1:Nparam)
        dXt1 = pchain(2:end,i)-mu(i);
@@ -95,5 +95,5 @@ function [effSampN,effSampNErr,logEffSampN,logEffSampNErr,AR1coeff, nc_flag, fed
     logEffSampN = log(effSampN);
     logEffSampNErr = log(effSampNErr);
     
-    toc
+    %toc
 end

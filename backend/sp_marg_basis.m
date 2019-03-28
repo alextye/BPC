@@ -37,9 +37,18 @@ function [marg_basis, areax, area_basis] = sp_marg_basis(knots, N_coefs, x_eval,
     
     marg_basis = zeros(size(x_eval,1),size(x_eval,2),N_coefs);
     
-    areax = min(knots):range(knots)/N_pts_area:max(knots);
+    %areax = (min(knots)+.5*range(knots)/N_pts_area):range(knots)/N_pts_area:(max(knots)-.5*range(knots)/N_pts_area);
+    
+    areabreak = floor(5/7*(N_pts_area));
+    areaxlog = [min(knots):(log(1000)-min(knots))/areabreak:log(1000)];
+    areaxlin = [1000:(exp(max(knots))-1000)/(N_pts_area-areabreak):exp(max(knots))];
+    areax = [areaxlog log(areaxlin(2:end))];
+    %keyboard
+        
     area_basis = zeros(length(areax),N_coefs);
 
+    %figure
+    %hold on
     for i = 1:N_coefs
         
         %iterate thru each possible basis function coefficient, and
@@ -55,6 +64,7 @@ function [marg_basis, areax, area_basis] = sp_marg_basis(knots, N_coefs, x_eval,
         
         marg_basis(:,:,i) = fnval(sp0,x_eval);
         area_basis(:,i) = fnval(sp0,areax);
+        %plot(areax,fnval(sp0,areax));
     end
-    
+    %keyboard
 end

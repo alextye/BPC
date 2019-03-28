@@ -60,10 +60,13 @@ function z = PME2CSV(folderpath,name,x_min,x_max,Npts,logage,logPDFs,savepath,sa
     x_max = log(x_max);
     
     %set knot locations for spline
-    N_coefs=50; %by default
-    knots = [x_min x_min x_min:(x_max-x_min)/(N_coefs-2):x_max x_max x_max];
+    %N_coefs=50; %by default
+    %knots = [x_min x_min x_min:(x_max-x_min)/(N_coefs-2):x_max x_max x_max];
     %read pchain
-    pchain = csvread(strcat(folderpath,'chains/',name,'chain.csv'),0);
+    data = csvread(strcat(folderpath,'chains/',name,'chain.csv'),0);
+    knots = data(1,:);
+    %read pchain
+    pchain = data([2:end],[1:end-3]);
     
     if thin>0 & thin<size(pchain,1)
         idx = randperm(size(pchain,1),thin);
@@ -81,27 +84,34 @@ function z = PME2CSV(folderpath,name,x_min,x_max,Npts,logage,logPDFs,savepath,sa
     %set delx variable used to estimate PDF integrals
     xvals = zeros(1,Npts);
     if logage
-        xvals = linspace(x_min,x_max,Npts);
-        delx = (x_max-x_min)/(Npts-1);
+        delx = (x_max-x_min)/Npts;
+        xvals = linspace(x_min+delx/2,x_max-delx/2,Npts);
     else
-        xvals = log(linspace(exp(x_min),exp(x_max),Npts));
-        delx = (exp(x_max)-exp(x_min))/(Npts-1);
+        delx = (exp(x_max)-exp(x_min))/Npts;
+        xvals = log(linspace(exp(x_min)+delx/2,exp(x_max)-delx/2,Npts));        
     end
+    
+    %keyboard
     
     %generate logPDF or linear PDF function values at indicated x-values 
     %for all probability chains
     
     h = parfor_progressbar(size(PDFs,1),'Evaluating PDFs...');
     parfor i = 1:size(PDFs,1)
-        if ~logPDFs
-            PDFs(i,:) = exp(fnval(spmak(knots,pchain(i,:)),xvals));
-            
+        if ~logPDFs & ~logage
             %if linear age is requested, divide the PDF values (valid for
             %log age scale) by the exponentiated x values, which results in
             %properly scaled peak heights
-            if ~logage
-                PDFs(i,:) = PDFs(i,:)./exp(xvals);
-            end
+            PDFs(i,:) = fnval(spmak(knots,pchain(i,:)),xvals);
+            PDFs(i,:) = exp(PDFs(i,:)-xvals);
+        elseif ~logPDFs & logage
+            PDFs(i,:) = exp(fnval(spmak(knots,pchain(i,:)),xvals));         
+            %if linear age is requested, divide the PDF values (valid for
+            %log age scale) by the exponentiated x values, which results in
+            %properly scaled peak heights
+%             if ~logage
+%                 PDFs(i,:) = PDFs(i,:)./exp(xvals);
+%             end
             
         else
             PDFs(i,:) = fnval(spmak(knots,pchain(i,:)),xvals);
@@ -121,10 +131,14 @@ function z = PME2CSV(folderpath,name,x_min,x_max,Npts,logage,logPDFs,savepath,sa
     
     %calculate Riemann summation approximate integrals
     if ~logPDFs
-        integrals = delx * (sum(PDFs(:,[2:Npts-1]),2) + .5 * (PDFs(:,1)+PDFs(:,Npts)));
+        %integrals = delx * (sum(PDFs(:,[2:Npts-1]),2) + .5 * (PDFs(:,1)+PDFs(:,Npts)));
+        integrals = delx * sum(PDFs,2);
     else
-        integrals = delx * (sum(exp(PDFs(:,[2:Npts-1])),2) + .5 * (exp(PDFs(:,1))+exp(PDFs(:,Npts))));
+        %integrals = delx * (sum(exp(PDFs(:,[2:Npts-1])),2) + .5 * (exp(PDFs(:,1))+exp(PDFs(:,Npts))));
+        integrals = delx * sum(exp(PDFs),2);
     end
+    
+%    keyboard
     
     %write header to file
     fid = fopen(strcat(savepath,savename),'w'); 

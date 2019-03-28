@@ -1,6 +1,6 @@
 %Alex Tye
 %Dec 2016
-function [pchain, logLk, fileID] = chain_const_joint(N_coefs, obs_data1, obs_data2, x_min, x_max, p_sig, delta, N_pts,filename,QUICKMFLAG)
+function [pchain, logLk, logPost, fileID] = chain_const_joint(N_coefs, knots, obs_data1, obs_data2, x_min, x_max, p_sig, delta, N_pts,filename,QUICKMFLAG)
 
 %function constructs expected values and covariance matrix that are 
 %parameters for the prior probability distribution and call function that
@@ -28,21 +28,47 @@ function [pchain, logLk, fileID] = chain_const_joint(N_coefs, obs_data1, obs_dat
 
     %Define knots for the cubic spline based on N_coefs and the range of 
     %values represented by the data.
-    knots = [x_min x_min x_min:(x_max-x_min)/(N_coefs-2):x_max x_max x_max];
+    %knots = [x_min x_min x_min:(x_max-x_min)/(N_coefs-2):x_max x_max x_max];
 
     %set expected coefficient values for a uniform distribution.
     priors_mu = zeros(1, N_coefs) -log(x_max-x_min);
 
+    %find mean value of each basis function in order to construct prior.
+    x = [[0:.01:6.9] log([1000:10:4000])];
+    bas_mean = zeros(1,N_coefs);
+    
+    for i = 1:N_coefs
+        
+        %iterate thru each possible basis function coefficient, and
+        %construct the spline curve that consists of only that basis
+        %function (coefficient=1).  Then, determine the overall function
+        %values at both the x locations that will be queried for likelihood
+        %(depends on the zircon age observations) and the evenly spaced
+        %locations that will be used to estimate area under the PDF.
+        
+        coefs = zeros(1,N_coefs);
+        coefs(i) = 1;
+        sp0 = spmak(knots, coefs);
+        
+        %calculate mean value by integration, being careful to normalize by
+        %area
+        bas_mean(i) = trapz(exp(x),fnval(sp0,x))/trapz(exp(x),fnval(sp0,x)./exp(x));
+    end
+    
+    mmeandif = mean(bas_mean(2:end)-bas_mean(1:end-1));
+    
     %construct a prior covariance matrix--diagonal elements are variance of
     %each spline parameter; off diagonal elements reflect influence of one
     %spline parameter on another. Magnitude of the off-diagonal elements is
     %controlled by parameter delta.
+
     priors_sigma = p_sig * ones(1, N_coefs);
     priors_sigma2 = priors_sigma.^2;
 
     cov_prior = diag(priors_sigma2);
     for i = 1:length(priors_sigma2)
         for j = i+1:length(priors_sigma2)
+            %cov_prior(i,j) = priors_sigma(i) * priors_sigma(j) * exp(-abs(bas_mean(i)-bas_mean(j))/(mmeandif*delta));
             cov_prior(i,j) = priors_sigma(i) * priors_sigma(j) * exp(-abs(i-j)/delta);
             cov_prior(j,i) = cov_prior(i,j);
         end
@@ -56,7 +82,7 @@ function [pchain, logLk, fileID] = chain_const_joint(N_coefs, obs_data1, obs_dat
     %the 'joint' zircon sample, which includes the ages of both zircon
     %samples
 
-    [best_coefs, bestLk, hessian, pchain, logLk, accRatio] = pchain_gen(obs_data_comp, knots, priors_mu, cov_prior, N_pts, 1, fileID,QUICKMFLAG);
+    [best_coefs, bestLk, hessian, pchain, logLk, accRatio, pre_norm_area, logPost] = pchain_gen(obs_data_comp, knots, priors_mu, cov_prior, N_pts, 1, fileID,QUICKMFLAG);
 
     fclose(fileID);
     

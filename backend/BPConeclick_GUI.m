@@ -150,8 +150,8 @@ else
 end
 
 auflag = get(handles.aucheck,'value');
-BPCuncswitch = get(handles.BPCuncswitch,'value');
-quickmode = get(handles.quickmode,'value');
+BPCuncswitch = 0;
+quickmode = 0;
 overwrite = get(handles.overwrite,'value');
 maxmodels = get(handles.maxmodels,'string');
 
@@ -177,11 +177,11 @@ end
 out_settings = fopen(strcat(get(handles.folderdisp,'string'),'/','BPCrunsettingslog.txt'),'a');
 fprintf(out_settings, strcat(datestr(now),'\n'));
 fprintf(out_settings, 'directory = %s/\n',get(handles.folderdisp,'string'));
-fprintf(out_settings, 'min age = %s Ma\n',get(handles.loage,'string'));
-fprintf(out_settings, 'max age = %s Ma\n',get(handles.upage,'string'));
+fprintf(out_settings, 'min age = 1 Ma\n');
+fprintf(out_settings, 'max age = 4000 Ma\n');
 fprintf(out_settings, 'Account for analytical uncertainties = %s\n',num2str(auflag));
-fprintf(out_settings, 'Calculate BPC uncertainties = %s\n',num2str(BPCuncswitch));
-fprintf(out_settings, 'Quick mode = %s\n',num2str(quickmode));
+%fprintf(out_settings, 'Calculate BPC uncertainties = %s\n',num2str(BPCuncswitch));
+%fprintf(out_settings, 'Quick mode = %s\n',num2str(quickmode));
 fprintf(out_settings, 'Overwrite existing PME and BPC unc files = %s\n',num2str(overwrite));
 fprintf(out_settings, 'Max models (0 indicates all) = %s\n',num2str(maxmodelspec));
 fprintf(out_settings, 'Number of cores (0 indicates not specified) = %s\n',num2str(corespec));
@@ -191,7 +191,7 @@ fprintf(out_settings, 'Number of cores (0 indicates not specified) = %s\n',num2s
 
 tPMEstart = tic;
 %canceledPME flags whether the user canceled the operation during execution
-canceledPME = makePME(strcat(get(handles.folderdisp,'string'),'/'),str2double(get(handles.loage,'string')),str2double(get(handles.upage,'string')),corespec,auflag,quickmode,overwrite,maxmodelspec);
+canceledPME = makePME(strcat(get(handles.folderdisp,'string'),'/'),1,4000,corespec,auflag,quickmode,overwrite,maxmodelspec);
 tmakePME = toc(tPMEstart);
 
 %do not run the second part of the operation if the user canceled the first

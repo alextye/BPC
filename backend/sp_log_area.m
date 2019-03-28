@@ -20,10 +20,14 @@ function y = sp_log_area(coefs, x, area_basis)
     %figure out each the function value at each x location by multiplying
     %the impulse responses of each x to each coefficient by the value of
     %that coefficient and summing across all coefficients
-    coefsmat = repmat(reshape(coefs,1,[]),size(area_basis,1),1);
-    fnvals = sum(area_basis.*coefsmat,2);
+    %coefsmat = repmat(reshape(coefs,1,[]),size(area_basis,1),1);
+    %fnvals = sum(area_basis.*coefsmat,2);
+    fnvals = area_basis*coefs';
+    %keyboard
     
     %trapezoidal approximation of the integral under the exponentiated
     %curve
-    y = trapz(x,exp(fnvals))-1;
+%    y = sum(exp([fnvals(1) fnvals(2:end-1)' fnvals(2:end-1)' fnvals(end)]))/2*(x(2)-x(1))-1;
+    y = log(trapz(x,exp(fnvals)));
+    %y = log(sum(exp(fnvals))*(x(2)-x(1)));
 end

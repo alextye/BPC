@@ -1,4 +1,4 @@
-function z = PMEplotlin(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,showdot,logPDFs,thin,varargin)
+function z = PMEplot(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,showdot,logPDFs,thin,linage,hybrid,varargin)
     
 %OUTPUT
 %z is a dummy variable
@@ -72,15 +72,23 @@ function z = PMEplotlin(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,s
         parpool(myCluster,corespec);
     end
 
-    %log transform x_min and x_max
+    %log transform x_min and x_max    
     x_min = log(x_min);
     x_max = log(x_max);
 
-    %set knot locations for spline
-    N_coefs=50; %by default
-    knots = [x_min x_min x_min:(x_max-x_min)/(N_coefs-2):x_max x_max x_max];
+    %read knot locations for spline
+    %N_coefs=50; %by default
+    %knots = [x_min x_min x_min:(x_max-x_min)/(N_coefs-2):x_max x_max x_max];
+    data = csvread(strcat(folderpath,'chains/',name,'chain.csv'),0);
+    knots = data(1,:);
+    
+    %if min/max limits are outside the modeled range, they will be set to
+    %lie at the limits of the modeled range.
+    x_min = max(x_min,knots(1));
+    x_max = min(x_max,knots(end));
     %read pchain
-    pchain = csvread(strcat(folderpath,'chains/',name,'chain.csv'),0);
+    pchain = data([2:end],[1:end-3]);
+    %keyboard
     
     %thin (select a subset of models) for plotting if user has specified to
     %do so.
@@ -93,10 +101,25 @@ function z = PMEplotlin(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,s
         pchain(1,:) = pchain1;
     end
     
-    %set x values at which to evaluate each PDF, dictated by x_min,
-    %x_max, and x_res
-    x = [x_min+(x_max-x_min)/(2*x_res):(x_max-x_min)/x_res:x_max-(x_max-x_min)/(2*x_res)];
-    PDFs = zeros(size(pchain,1),x_res);
+    if hybrid
+        x_break = min(x_max,log(1000));
+        x1 = [x_min+(x_break-x_min)/(2*x_res):(x_break-x_min)/x_res:x_break-(x_break-x_min)/(2*x_res)];
+        if x_max > x_break
+            x2 = log([exp(x_break)+(exp(x_max)-exp(x_break))/(2*x_res):(exp(x_max)-exp(x_break))/x_res:exp(x_max)-(exp(x_max)-exp(x_break))/(2*x_res)]);
+        else
+            x2 = [];
+        end
+        x = [x1 x2];
+        PDFs = zeros(size(pchain,1),length(x));
+    elseif linage
+        x = log([exp(x_min)+(exp(x_max)-exp(x_min))/(2*x_res):(exp(x_max)-exp(x_min))/x_res:exp(x_max)-(exp(x_max)-exp(x_min))/(2*x_res)]);
+        PDFs = zeros(size(pchain,1),x_res);
+    else
+        %set x values at which to evaluate each PDF, dictated by x_min,
+        %x_max, and x_res
+        x = [x_min+(x_max-x_min)/(2*x_res):(x_max-x_min)/x_res:x_max-(x_max-x_min)/(2*x_res)];
+        PDFs = zeros(size(pchain,1),x_res);
+    end
     
     %generate logPDF or linear PDF function values at indicated x-values 
     %for all probability chains
@@ -114,17 +137,33 @@ function z = PMEplotlin(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,s
     
     %renormalize PDF area to match the x scale
     if ~logPDFs
-        PDFs = PDFs * (x_max-x_min)/(exp(x_max)-exp(x_min));
+        if hybrid
+            PDFs(:,find(x>x_break)) = PDFs(:,find(x>x_break))./(exp(x(find(x>x_break)))/1000);
+        elseif linage
+            PDFs = PDFs./exp(x);
+        else
+            PDFs = PDFs * (knots(end)-knots(1))/(exp(knots(end))-exp(knots(1)));
+        end
     else
-        PDFs = PDFs + log((x_max-x_min)/(exp(x_max)-exp(x_min)));
+        if hybrid
+            PDFs(:,find(x>x_break)) = PDFs(:,find(x>x_break))-log(exp(x(find(x>x_break)))/1000);
+        elseif linage
+            PDFs = PDFs-x;
+        else
+            PDFs = PDFs + log((knots(end)-knots(1))/(exp(knots(end))-exp(knots(1))));
+        end
     end
     
+%    keyboard
+    
     %initialize histogram grid
-    histgrid = zeros(y_res,x_res);
+    histgrid = zeros(y_res,length(x));
     
     %determine edges of the bin spacing in the y (log P) direction
-    minP = min(min(PDFs));
-    maxP = max(max(PDFs));
+    %minP = min(min(PDFs));
+    minP = quantile(min(PDFs),.01);
+    %maxP = max(max(PDFs));
+    maxP = quantile(max(PDFs),.99);
     y_edges = [minP:(maxP-minP)/y_res:maxP];
     y = [y_edges(2:end)-(y_edges(2)-y_edges(1))/2];
     yzero = find(y==min(abs(y)));
@@ -152,19 +191,32 @@ function z = PMEplotlin(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,s
     
     [X,Y] = meshgrid(x,y);
     
+    %STILL NEED TO FIGURE OUT HOW TO PLOT 2 PLOTS FOR THE HYBRID THING
     figure(fignum);
     clf;
     %alters colormap so that bins that zero PDFs pass through plot as white
     cmap = colormap;
     cmap(1,:) = [1 1 1];
     colormap(cmap);
-    
+
     %output histogram values showing concentration of PDF curves of the
     %PME.
-    surf(exp(X),Y,histgrid,'EdgeColor','none');
-    set(gca, 'XScale', 'log');
+    if ~hybrid
+        surf(exp(X),Y,histgrid,'EdgeColor','none');
+    else
+        surf(exp(X(:,[1:x_res])),Y(:,[1:x_res]),histgrid(:,[1:x_res]),'EdgeColor','none');
+    end
+    if ~linage
+        set(gca, 'XScale', 'log');
+    end
     ax = gca;
-    ax.XLim = [exp(x_min) exp(x_max)];
+    
+    if ~hybrid
+        ax.XLim = [exp(x_min) exp(x_max)];
+    else
+        ax.XLim = [exp(x_min) exp(x_break)]; 
+    end
+    
     yax = ax.YLim;
     xlabel('Age (Ma)');
     if logPDFs
@@ -173,37 +225,91 @@ function z = PMEplotlin(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,s
         ylabel('p');
     end
     view(2);
+    grid off
+    %keyboard
+    if hybrid
+        figure(fignum+1);
+        clf;
+        %alters colormap so that bins that zero PDFs pass through plot as white
+        cmap = colormap;
+        cmap(1,:) = [1 1 1];
+        colormap(cmap);
+
+        %output histogram values showing concentration of PDF curves of the
+        %PME.
+        surf(exp(X(:,[x_res+1:end])),Y(:,[x_res+1:end]),histgrid(:,[x_res+1:end]),'EdgeColor','none');
+        %set(gca, 'XScale', 'log');
+        ax = gca;
+        ax.XLim = [exp(x_break) exp(x_max)];
+        yax = ax.YLim;
+        xlabel('Age (Ma)');
+        if logPDFs
+            ylabel('ln p');
+        else
+            ylabel('p');
+        end
+        view(2);
+        grid off
+    end
     
     %plot the maximum likelihood model PDF
     if(showMLM==1)
         hold on;
         %max. likelihood model can be output onto a new figure
         if newfig
-            figure(fignum+1);
+            if ~hybrid
+                figure(fignum+1);
+            else
+                figure(fignum+2);
+            end
             clf
             ax = gca;
-            if logPDFs
-                h=plot3(exp(x),fnval(spmak(knots,pchain(1,:)),x)+log((x_max-x_min)/(exp(x_max)-exp(x_min))),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
-            else
-                h=plot3(exp(x),exp(fnval(spmak(knots,pchain(1,:)),x))*(x_max-x_min)/(exp(x_max)-exp(x_min)),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+            h=plot3(exp(x),PDFs(1,:),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+            %keyboard
+            if ~linage
+                set(gca, 'XScale', 'log');
             end
-            set(gca, 'XScale', 'log');
             ax.YLim = yax;
-            ax.XLim = [exp(x_min) exp(x_max)];
+            if ~hybrid
+                ax.XLim = [exp(x_min) exp(x_max)];
+            else
+                ax.XLim = [exp(x_min) exp(x_break)];
+            end
             view(2)
+            grid off
             xlabel('Age (Ma)');
             if logPDFs
                 ylabel('ln p');
             else
                 ylabel('p');
             end
+            if hybrid
+                figure(fignum+3);
+                clf
+                ax = gca;
+                h=plot3(exp(x),PDFs(1,:),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+                %keyboard
+                ax.YLim = yax;
+                ax.XLim = [exp(x_break) exp(x_max)];
+                view(2)
+                grid off
+                xlabel('Age (Ma)');
+                if logPDFs
+                    ylabel('ln p');
+                else
+                    ylabel('p');
+                end
+            end
         %or can be plotted onto the same figure as the PME.
         else
-            if logPDFs
-                h=plot3(exp(x),fnval(spmak(knots,pchain(1,:)),x)+log((x_max-x_min)/(exp(x_max)-exp(x_min))),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+            if ~hybrid
+                %keyboard
+                h=plot3(exp(x),PDFs(1,:),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
             else
-                h=plot3(exp(x),exp(fnval(spmak(knots,pchain(1,:)),x))*(x_max-x_min)/(exp(x_max)-exp(x_min)),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
-            end
+                h=plot3(exp(x),PDFs(1,[1:x_res]),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+                figure(fignum+1)
+                h=plot3(exp(x),PDFs(1,[x_res+1:end]),hist95+1*ones(1,length(x)),'r-','LineWidth',1);
+            end 
         end
     end
     %plot dots corresponding to measured zircon ages
@@ -221,14 +327,37 @@ function z = PMEplotlin(folderpath,name,x_min,x_max,x_res,y_res,fignum,showMLM,s
             msize = 10;
         end
         if newfig
-            figure(fignum+2);
+            if ~hybrid
+                figure(fignum+2);
+            else
+                figure(fignum+4);
+            end
             clf
             plot(ages(:,1),rand(1,size(ages,1)),'k.','MarkerSize',msize);
-            set(gca, 'XScale', 'log');
+            if ~linage
+                set(gca, 'XScale', 'log');
+            end
             axis([exp(x_min) exp(x_max) 0 1]);
             xlabel('Age (Ma)');
+            if hybrid
+                axis([exp(x_min) exp(x_break) 0 1]);
+                figure(fignum+5);
+                clf
+                plot(ages(:,1),rand(1,size(ages,1)),'k.','MarkerSize',msize);
+                axis([exp(x_break) exp(x_max) 0 1]);
+                xlabel('Age (Ma)');
+            end
         else
-            plot(ages(:,1),minP-((maxP-minP)/20)*rand(1,size(ages,1)),'k.','MarkerSize',msize);
+            if ~hybrid
+                plot(ages(:,1),minP-((maxP-minP)/20)*rand(1,size(ages,1)),'k.','MarkerSize',msize);
+            else
+                figure(fignum)
+                ages_lessbreak = ages(find(ages(:,1)<exp(x_break)),:);
+                ages_gtrbreak = ages(find(ages(:,1)>exp(x_break)),:);
+                plot(ages_lessbreak(:,1),minP-((maxP-minP)/20)*rand(1,size(ages_lessbreak,1)),'k.','MarkerSize',msize);
+                figure(fignum+1)
+                plot(ages_gtrbreak(:,1),minP-((maxP-minP)/20)*rand(1,size(ages_gtrbreak,1)),'k.','MarkerSize',msize);
+            end
         end
     end
     %display title

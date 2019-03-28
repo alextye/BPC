@@ -57,17 +57,17 @@ handles.output = hObject;
 
 %dummy = spmak([0 0 0 0.5 1 1 1], [1 1 1 1 1]);
 
-license_names = {'Optimization Toolbox\n', 'Statistics and Machine Learning Toolbox\n', 'Curve Fitting Toolbox\n', 'Parallel Computing Toolbox\n', 'Global Optimization Toolbox\n'};
-installed = zeros(1,5);
-installed(1) = ~isempty(ver('optim'));
-installed(2) = ~isempty(ver('stats'));
-installed(3) = ~isempty(ver('curvefit'));
-installed(4) = ~isempty(ver('distcomp'));
-installed(5) = ~isempty(ver('globaloptim'));
-mess = sprintf(strcat('The following toolboxes are necessary and not installed:\n\n',license_names{find(installed==0)}));
-if sum(installed) < 5
-    msgbox(mess);
-end
+% license_names = {'Optimization Toolbox\n', 'Statistics and Machine Learning Toolbox\n', 'Curve Fitting Toolbox\n', 'Parallel Computing Toolbox\n', 'Global Optimization Toolbox\n'};
+% installed = zeros(1,5);
+% installed(1) = ~isempty(ver('optim'));
+% installed(2) = ~isempty(ver('stats'));
+% installed(3) = ~isempty(ver('curvefit'));
+% installed(4) = ~isempty(ver('distcomp'));
+% installed(5) = ~isempty(ver('globaloptim'));
+% mess = sprintf(strcat('The following toolboxes are necessary and not installed:\n\n',license_names{find(installed==0)}));
+% if sum(installed) < 5
+%     msgbox(mess);
+% end
 
 % Update handles structure
 guidata(hObject, handles);

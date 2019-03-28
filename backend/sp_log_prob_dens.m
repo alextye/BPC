@@ -1,4 +1,4 @@
-function y = sp_log_prob_dens(coefs, N_sig, x_eval, marg_basis)
+function y = sp_log_prob_dens(coefs, logsigfrac, x_eval, marg_basis, lnorm_densrep)
     
 %function sp_log_prob calculates the log probability of observing the
 %given data in obs_data given the candidate PDF described by knots and
@@ -24,34 +24,18 @@ function y = sp_log_prob_dens(coefs, N_sig, x_eval, marg_basis)
 %OUTPUT
 %y is the log likelihood of observing the set of zircon ages contained in
 %obs_data given the candidate PDF constructed from knots and coefs.
-    
-    %define the fraction of 1 sigma over which to discretize the normal
-    %distribution for each point.
-    sig_frac = 1/N_sig;
-    
-    %calculate the log of the function value of a Gaussian distribution
-    %from -4 sigma to 4 sigma, at interval sig_frac.
-    lnorm_dens = [-4:sig_frac:4];
-    lnorm_dens = log(1/sqrt(2*pi)) - 0.5 * lnorm_dens.^2;
 
     %retrieve the function values (log likelihood values) of the candidate
     %PDF at each x value that corresponds to one of the discretization
     %points for the Gaussians associated with each individual zircon grain.
     
-    coefmat = repmat(reshape(coefs,1,1,[]),size(x_eval,1),size(x_eval,2));
-    vals = sum(marg_basis.*coefmat,3);
+    %coefmat = repmat(reshape(coefs,1,1,[]),size(x_eval,1),size(x_eval,2));
+    %vals = sum(marg_basis.*coefmat,3);
+    vals = reshape(marg_basis,[],length(coefs))*coefs';
+    vals = reshape(vals, size(marg_basis,1),[]);
     
-    %find the maximum log likelihood value associated with each zircon
-    %grain (each row of x_eval and vals matrices correspond to one zircon).
-    maxval = max(vals, [], 2);
     
-    %replicate the above column vector to be a matrix of the same
-    %dimensions as vals.
-    maxvalrep = repmat(maxval, 1, size(vals,2));
     
-    %replicate the log Gaussian function values found above to have the
-    %same dimensions as vals.
-    lnorm_densrep = repmat(lnorm_dens, size(vals,1), 1);
     
     %the likelihood of observing each individual grain age given the
     %candidate PDF is the sum of the products of the Gaussian
@@ -66,8 +50,21 @@ function y = sp_log_prob_dens(coefs, N_sig, x_eval, marg_basis)
     %the columns is sig_frac, so the discretized results must be multiplied
     %by sig_frac to be a true area, which is what is achieved by
     %integration.
-    sp_test_y = maxval + log(sig_frac) + log(sum(exp(vals + lnorm_densrep - maxvalrep), 2));
+    if size(vals,2)>1
+        %find the maximum log likelihood value associated with each zircon
+        %grain (each row of x_eval and vals matrices correspond to one zircon).
+        maxval = max(vals, [], 2);
+
+        %replicate the above column vector to be a matrix of the same
+        %dimensions as vals.
+        maxvalrep = repmat(maxval, 1, size(vals,2));
+        
+        sp_test_y = maxval + logsigfrac + log(sum(exp(vals + lnorm_densrep - maxvalrep), 2));
+    else
+        sp_test_y = vals;
+    end
     
+    %keyboard
     %add together the log likelihood of observing each individual grain age
     %to obtain the likelihood of observing the entire sample.
     y = sum(sp_test_y);

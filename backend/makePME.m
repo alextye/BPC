@@ -115,14 +115,22 @@ function canceled = makePME(folderpath, x_min, x_max, varargin)
     end
     
     
-    %set parameters for splining and MCMC. See comments of chain_const.m
-    %for discussion.
-    N_coefs = 50;
+    N_coefs = 100;
+    %N_coefs = 250;
     p_sig = 13.5;
     lxmin = log(x_min);
     lxmax = log(x_max);
     N_pts = 1000;
     delta = N_coefs/10;
+    knotbreak = floor(5/7*(N_coefs-2));
+    %knots = [lxmin lxmin lxmin:(lxmax-lxmin)/(N_coefs-2):lxmax lxmax lxmax];
+    
+    %construct knots such that they are log distributed <1000 Ma and linear
+    %distributed >1000 Ma, mirroring the distribution of zircon U-Pb age 
+    %errors.
+    knotslog = [lxmin lxmin lxmin:(log(1000)-lxmin)/knotbreak:log(1000)];
+    knotslin = [1000:(x_max-1000)/(N_coefs-2-knotbreak):x_max x_max x_max];
+    knots = [knotslog log(knotslin(2:end))];
     
     %create directory for the Markov chain results
     out = evalc('mkdir(strcat(folderpath,''chains/''))');
@@ -178,7 +186,7 @@ function canceled = makePME(folderpath, x_min, x_max, varargin)
                 filename = strcat(folderpath,'log/',fnames(i).name(1:end-4),'log.txt');
                 
                 %add the operations to the parallelized function queue.
-                F(numActive) = parfeval(@chain_const,2,N_coefs,lsampages{i},lxmin,lxmax,p_sig,delta,N_pts,filename,QUICKMFLAG);
+                F(numActive) = parfeval(@chain_const,3,N_coefs,knots,lsampages{i},lxmin,lxmax,p_sig,delta,N_pts,filename,QUICKMFLAG);
             end
         else
 
@@ -187,14 +195,14 @@ function canceled = makePME(folderpath, x_min, x_max, varargin)
     %the 'joint' sample of each inter-sample combination.
 
             [i, j] = find(idxguide==l);
-            nametest = dir(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'logLk.csv'));
+            nametest = dir(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'logPost.csv'));
             if(size(nametest,1)==0|OWFLAG)
                 numActive = numActive + 1;
                 isactive(l) = 1;
                 filename = strcat(folderpath,'log/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'log.txt');
                 
                 %add the operations to the parallelized function queue.
-                F(numActive) = parfeval(@chain_const_joint,2,N_coefs,lsampages{i},lsampages{j},lxmin,lxmax,p_sig,delta,N_pts,filename,QUICKMFLAG);
+                F(numActive) = parfeval(@chain_const_joint,3,N_coefs,knots,lsampages{i},lsampages{j},lxmin,lxmax,p_sig,delta,N_pts,filename,QUICKMFLAG);
             end
         end
         
@@ -214,20 +222,23 @@ function canceled = makePME(folderpath, x_min, x_max, varargin)
             break
         end
         
-        [Fidx, pchain, logLk] = fetchNext(F,2);
+        [Fidx, pchain, logLk, logPost] = fetchNext(F,2);
         
         %thin chain for writing to disk if specified
         if length(logLk) > maxmodelspec & maxmodelspec > 0
             %preserve max. likelihood model at head of each chain
             pchain1 = pchain(1,:);
             logLk1 = logLk(1);
+            logPost1 = logPost(1);
             
             writeidx = floor([1:maxmodelspec] * length(logLk)/maxmodelspec);
             pchain = pchain(writeidx,:);
             logLk = logLk(writeidx);
+            logPost = logPost(writeidx);
             
             pchain(1,:) = pchain1;
             logLk(1) = logLk1;
+            logPost(1) = logPost1;
         end
         
         if ~isempty(Fidx)
@@ -235,12 +246,16 @@ function canceled = makePME(folderpath, x_min, x_max, varargin)
         
             if completedIdx <= numfids
                 i = completedIdx;
-                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'chain.csv'),pchain);
+                dlmwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'chain.csv'),knots);
+                dlmwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'chain.csv'),pchain,'-append');
                 csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'logLk.csv'),logLk);
+                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'logPost.csv'),logPost);
             else
                 [i, j] = find(idxguide==completedIdx);
-                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'chain.csv'),pchain);
+                dlmwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'chain.csv'),knots);
+                dlmwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'chain.csv'),pchain,'-append');
                 csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'logLk.csv'),logLk);
+                csvwrite(strcat(folderpath,'chains/',fnames(i).name(1:end-4),'_',fnames(j).name(1:end-4),'logPost.csv'),logPost);
             end
             l = l + 1;
             waitbar(1-(numActive-l)/k);

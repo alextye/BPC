@@ -22,12 +22,12 @@ function [pchain,logLk,accRatio] = mcmcmetro_bpdf(Nchain,pinit,logLkFun,sig2,are
     logLk  = nan*ones(Nchain,1);
     accHist= nan*ones(Nchain,1);
 
-    EPSarea = 1e-5;
-    larea = sp_log_area(pinit,areax,area_basis);
-    while(abs(larea)>EPSarea)
-        pinit = pinit - larea;
-        larea = sp_log_area(pinit,areax,area_basis);
-    end
+%     EPSarea = 1e-5;
+%     larea = sp_log_area(pinit,areax,area_basis);
+%     while(abs(larea)>EPSarea)
+%         pinit = pinit - larea;
+%         larea = sp_log_area(pinit,areax,area_basis);
+%     end
     
     prev = pinit;
 %    csvwrite('temp_dump/pinit',pinit);
@@ -38,8 +38,15 @@ function [pchain,logLk,accRatio] = mcmcmetro_bpdf(Nchain,pinit,logLkFun,sig2,are
 
     for(i=1:Nchain)
         prop = mvnrnd(prev,sig2,1);
-        prop(find(prop<-50)) = -50;
-        prop = prop - sp_log_area(prop,areax,area_basis);
+        %prop(find(prop<-50)) = -50;
+        %prop = prop - sp_log_area(prop,areax,area_basis);
+        
+        %COMMENTED OUT BECAUSE MODEL AREAS ARE CURRENTLY OK
+%         larea = sp_log_area(prop,areax,area_basis);
+%         while(abs(larea)>EPSarea)
+%             prop = prop - larea;
+%             larea = sp_log_area(prop,areax,area_basis);
+%         end
         
         %propparam(i,:) = prop;
         propLogLk = -1*logLkFun(prop);
